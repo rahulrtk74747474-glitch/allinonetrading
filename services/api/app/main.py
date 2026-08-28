@@ -7,6 +7,7 @@ from typing import Literal
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from .brokers.angel_one import AngelOneAdapter
 
 
 app = FastAPI(
@@ -326,3 +327,8 @@ def optimizer_preview() -> dict:
         ],
         "status": "Optimizer contract ready; execution will be connected after historical data is loaded.",
     }
+
+
+@app.get("/api/v1/broker/status")
+def broker_status() -> dict:
+    return AngelOneAdapter().configuration_status()

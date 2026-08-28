@@ -1,0 +1,4 @@
+# Optional local-only SmartAPI data connector.
+# Keep credentials in .env; never commit them.
+smartapi-python==1.5.5
+pyotp>=2.9
