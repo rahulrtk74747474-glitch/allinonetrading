@@ -1,0 +1,16 @@
+{
+  "name": "allinonetrading",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.5.0",
+  "scripts": {
+    "dev:web": "pnpm --filter @allinone/web dev",
+    "build:web": "pnpm --filter @allinone/web build",
+    "dev:mobile": "pnpm --filter @allinone/mobile start",
+    "api": "python -m uvicorn app.main:app --reload --app-dir services/api",
+    "test:api": "pytest services/api/tests"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3"
+  }
+}
