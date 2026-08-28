@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "All In One Trading",
+    "slug": "all-in-one-trading",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "allinonetrading",
+    "android": {
+      "package": "com.allinone.trading"
+    },
+    "ios": {
+      "bundleIdentifier": "com.allinone.trading"
+    }
+  }
+}
