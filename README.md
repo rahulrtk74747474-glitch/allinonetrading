@@ -23,6 +23,9 @@ SmartAPI credentials never belong in source control, a browser bundle, an APK or
 3. Keep PAPER_TRADING=true and LIVE_TRADING=false.
 4. Never commit .env.
 
+If a credential was ever committed to a repository, treat it as compromised even
+if the file is later removed. Revoke it at the broker and create a fresh one.
+
 The repository currently contains demo data only. Demo signals are not trading advice and must not be used as live orders.
 
 ## Architecture
@@ -49,10 +52,22 @@ In another terminal:
     python -m venv .venv
     .venv\Scripts\activate
     pip install -e services/api
+    pip install -r services/api/requirements-broker.txt
     uvicorn app.main:app --reload --app-dir services/api
 
 The website runs on the Vite URL shown by the command, normally http://localhost:5173.
 The API runs on http://127.0.0.1:8000.
+
+After .env is configured, the local launcher starts both services:
+
+    # Windows PowerShell
+    .\scripts\start-local.ps1
+
+    # macOS/Linux
+    bash scripts/start-local.sh
+
+The launcher creates the virtual environment when needed and installs the
+read-only broker adapter. It never prints or uploads the values in .env.
 
 For macOS/Linux, activate the environment with:
 
