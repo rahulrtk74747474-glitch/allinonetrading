@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import {
   Pressable,
@@ -24,6 +24,8 @@ const colors = {
   orange: "#f5a45b",
   red: "#ed6a85",
 };
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 const quotes = [
   { symbol: "RELIANCE", price: "₹2,942.40", change: "+1.84%", signal: "Momentum", color: colors.green },
@@ -65,6 +67,39 @@ export default function App() {
 }
 
 function HomeScreen({ onTab }: { onTab: (tab: Tab) => void }) {
+  const [visibleQuotes, setVisibleQuotes] = useState(quotes);
+  const [feedMode, setFeedMode] = useState("DEMO");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${API_URL}/api/v1/screener/scan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        universe: "nifty50",
+        timeframe: "1d",
+        conditions: [],
+        limit: 4,
+      }),
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("API unavailable"))))
+      .then((data) => {
+        if (!Array.isArray(data.results) || data.results.length === 0) return;
+        setVisibleQuotes(data.results.map((row: { symbol: string; ltp: number; changePct: number; signal: string }) => ({
+          symbol: row.symbol,
+          price: `₹${Number(row.ltp).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+          change: `${row.changePct >= 0 ? "+" : ""}${Number(row.changePct).toFixed(2)}%`,
+          signal: row.signal || "Watch",
+          color: row.changePct >= 0 ? colors.green : colors.red,
+        })));
+        setFeedMode(data.mode === "connected" ? "LIVE" : "DEMO");
+      })
+      .catch(() => setFeedMode("DEMO"));
+
+    return () => controller.abort();
+  }, []);
+
   return (
     <>
       <Text style={styles.eyebrow}>FRIDAY · 28 AUG 2026</Text>
@@ -76,7 +111,7 @@ function HomeScreen({ onTab }: { onTab: (tab: Tab) => void }) {
         <Metric label="Today’s move" value="+₹2,480" detail="Simulated" positive />
       </View>
 
-      <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Market pulse</Text><Text style={styles.link}>NIFTY 50 · 1D</Text></View>
+      <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Market pulse</Text><Text style={styles.link}>NIFTY 50 · 1D · {feedMode}</Text></View>
       <View style={styles.chartCard}>
         <Text style={styles.chartValue}>24,548.70</Text>
         <Text style={styles.positive}>+0.84% today</Text>
@@ -86,7 +121,7 @@ function HomeScreen({ onTab }: { onTab: (tab: Tab) => void }) {
 
       <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Saved momentum scan</Text><Pressable onPress={() => onTab("scan")}><Text style={styles.link}>Open →</Text></Pressable></View>
       <View style={styles.listCard}>
-        {quotes.map((quote) => <QuoteRow key={quote.symbol} {...quote} />)}
+        {visibleQuotes.map((quote) => <QuoteRow key={quote.symbol} {...quote} />)}
       </View>
 
       <Pressable style={styles.primary} onPress={() => onTab("scan")}><Text style={styles.primaryText}>Run screener</Text><Text style={styles.primaryArrow}>→</Text></Pressable>
