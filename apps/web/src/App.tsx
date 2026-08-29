@@ -526,7 +526,28 @@ function CheckLine({ label }: { label: string }) {
 }
 
 function SettingsView() {
-  return <><div className="page-heading compact-heading"><div><div className="eyebrow">PRIVATE WORKSPACE</div><h1>Settings<span className="accent">.</span></h1><p>Manage local data sources, safety switches and future platform connections.</p></div></div><div className="settings-grid"><div className="panel"><div className="panel-header"><div><span className="panel-kicker">EXECUTION SAFETY</span><h3>Trading controls</h3></div><ShieldCheck className="green-icon" size={20} /></div><SettingToggle title="Paper trading" detail="All orders are simulated locally" enabled /><SettingToggle title="Live trading" detail="Disabled until explicit review" enabled={false} locked /><SettingToggle title="AI order authority" detail="Research assistant cannot place orders" enabled={false} locked /></div><div className="panel"><div className="panel-header"><div><span className="panel-kicker">DATA CONNECTION</span><h3>Angel One SmartAPI</h3></div><span className="status-badge orange-badge">Not connected</span></div><div className="secure-field"><Database size={16} /><div><strong>Backend-only secret storage</strong><span>Credentials load from local .env and never enter web or mobile bundles.</span></div></div><button className="secondary-button full-button"><Settings size={15} /> Test read-only connection</button><div className="settings-note"><ShieldCheck size={14} /> Use rotated credentials only. Live order placement is intentionally unavailable in this build.</div></div><div className="panel"><div className="panel-header"><div><span className="panel-kicker">PLATFORM CLIENTS</span><h3>Web · Android · iOS</h3></div><Sparkles className="violet-icon" size={20} /></div><div className="client-row"><div className="client-status ready">WEB</div><span>Responsive research terminal</span><span className="status-badge green-badge">Ready</span></div><div className="client-row"><div className="client-status">AND</div><span>Expo mobile client</span><span className="status-badge purple-badge">Foundation</span></div><div className="client-row"><div className="client-status">iOS</div><span>Expo mobile client</span><span className="status-badge purple-badge">Foundation</span></div></div></div></>;
+  const [connecting, setConnecting] = useState(false);
+  const [connectionMessage, setConnectionMessage] = useState("");
+
+  async function testConnection() {
+    setConnecting(true);
+    setConnectionMessage("");
+    try {
+      const response = await fetch(API_URL + "/api/v1/broker/read-only-connect", { method: "POST" });
+      const data = await response.json();
+      if (data.status) {
+        setConnectionMessage("Read-only SmartAPI session established. No order permissions were used.");
+      } else {
+        setConnectionMessage(data.message || "SmartAPI connection was not established.");
+      }
+    } catch {
+      setConnectionMessage("Backend unavailable. Start the FastAPI service and try again.");
+    } finally {
+      setConnecting(false);
+    }
+  }
+
+  return <><div className="page-heading compact-heading"><div><div className="eyebrow">PRIVATE WORKSPACE</div><h1>Settings<span className="accent">.</span></h1><p>Manage local data sources, safety switches and future platform connections.</p></div></div><div className="settings-grid"><div className="panel"><div className="panel-header"><div><span className="panel-kicker">EXECUTION SAFETY</span><h3>Trading controls</h3></div><ShieldCheck className="green-icon" size={20} /></div><SettingToggle title="Paper trading" detail="All orders are simulated locally" enabled /><SettingToggle title="Live trading" detail="Disabled until explicit review" enabled={false} locked /><SettingToggle title="AI order authority" detail="Research assistant cannot place orders" enabled={false} locked /></div><div className="panel"><div className="panel-header"><div><span className="panel-kicker">DATA CONNECTION</span><h3>Angel One SmartAPI</h3></div><span className="status-badge orange-badge">Not connected</span></div><div className="secure-field"><Database size={16} /><div><strong>Backend-only secret storage</strong><span>Credentials load from local .env and never enter web or mobile bundles.</span></div></div><button className="secondary-button full-button" onClick={testConnection}>{connecting ? <RefreshCw className="spin" size={15} /> : <Settings size={15} />}{connecting ? "Testing..." : "Test read-only connection"}</button><div className="settings-note"><ShieldCheck size={14} />{connectionMessage || "This test creates only a read-only data session and does not place an order."}</div><div className="settings-note"><ShieldCheck size={14} /> Use rotated credentials only. Live order placement is intentionally unavailable in this build.</div></div><div className="panel"><div className="panel-header"><div><span className="panel-kicker">PLATFORM CLIENTS</span><h3>Web · Android · iOS</h3></div><Sparkles className="violet-icon" size={20} /></div><div className="client-row"><div className="client-status ready">WEB</div><span>Responsive research terminal</span><span className="status-badge green-badge">Ready</span></div><div className="client-row"><div className="client-status">AND</div><span>Expo mobile client</span><span className="status-badge purple-badge">Foundation</span></div><div className="client-row"><div className="client-status">iOS</div><span>Expo mobile client</span><span className="status-badge purple-badge">Foundation</span></div></div></div></>;
 }
 
 function SettingToggle({ title, detail, enabled, locked }: { title: string; detail: string; enabled: boolean; locked?: boolean }) {
