@@ -81,6 +81,9 @@ Install the Expo tooling, then run:
 
 Set EXPO_PUBLIC_API_URL to the reachable API URL when mobile is connected to the backend. A phone cannot reach 127.0.0.1 on the development computer; use the computer's LAN address or a private VPN.
 
+For example, copy apps/mobile/.env.example to apps/mobile/.env and replace
+127.0.0.1 with the computer's LAN address when using a physical phone.
+
 ## First vertical slice
 
 Load normalized market data -> run a saved scan -> inspect a chart -> view RRG -> backtest the same rule -> preview a paper order with margin and charges.
