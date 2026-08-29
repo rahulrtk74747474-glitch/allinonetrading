@@ -61,6 +61,20 @@ class OrderPreviewRequest(BaseModel):
     product: Literal["CNC", "MIS", "NRML"] = "MIS"
 
 
+class LtpRequest(BaseModel):
+    exchange: str = "NSE"
+    symbol: str
+    symbol_token: str
+
+
+class CandleRequest(BaseModel):
+    exchange: str = "NSE"
+    symbol_token: str
+    interval: str = "ONE_DAY"
+    from_date: str
+    to_date: str
+
+
 SAMPLE_QUOTES = [
     {"symbol": "RELIANCE", "exchange": "NSE", "sector": "Energy", "ltp": 2942.40, "change_pct": 1.84, "volume": 8420000, "rsi": 64.2, "score": 86},
     {"symbol": "ICICIBANK", "exchange": "NSE", "sector": "Banks", "ltp": 1328.65, "change_pct": 1.25, "volume": 6110000, "rsi": 61.7, "score": 82},
@@ -332,3 +346,51 @@ def optimizer_preview() -> dict:
 @app.get("/api/v1/broker/status")
 def broker_status() -> dict:
     return AngelOneAdapter().configuration_status()
+
+
+broker_adapter = AngelOneAdapter()
+
+
+@app.post("/api/v1/broker/read-only-connect")
+def broker_read_only_connect() -> dict:
+    return broker_adapter.login()
+
+
+@app.post("/api/v1/market/ltp")
+def market_ltp(request: LtpRequest) -> dict:
+    try:
+        return {
+            "mode": "connected",
+            "data": broker_adapter.get_ltp(
+                request.exchange,
+                request.symbol,
+                request.symbol_token,
+            ),
+        }
+    except Exception as exc:
+        return {
+            "mode": "unavailable",
+            "message": "Read-only quote request failed.",
+            "error": type(exc).__name__,
+        }
+
+
+@app.post("/api/v1/market/candles")
+def market_candles(request: CandleRequest) -> dict:
+    try:
+        return {
+            "mode": "connected",
+            "data": broker_adapter.get_candles(
+                request.exchange,
+                request.symbol_token,
+                request.interval,
+                request.from_date,
+                request.to_date,
+            ),
+        }
+    except Exception as exc:
+        return {
+            "mode": "unavailable",
+            "message": "Read-only candle request failed.",
+            "error": type(exc).__name__,
+        }
