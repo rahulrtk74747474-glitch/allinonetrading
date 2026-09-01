@@ -1,4 +1,9 @@
 # Optional local-only SmartAPI data connector.
 # Keep credentials in .env; never commit them.
+# Angel One's SDK imports these packages at runtime but does not reliably
+# declare all of them as transitive dependencies.
 smartapi-python==1.5.5
 pyotp>=2.9
+logzero==1.7.0
+websocket-client>=1.8.0
+pycryptodome>=3.20
