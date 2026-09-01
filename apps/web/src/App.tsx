@@ -82,6 +82,7 @@ type ResearchReport = {
   next_actions: string[];
   agent_trace: string[];
   approval_required: boolean;
+  order_authority: "none";
   warnings: string[];
 };
 
