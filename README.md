@@ -84,6 +84,10 @@ Set EXPO_PUBLIC_API_URL to the reachable API URL when mobile is connected to the
 For example, copy apps/mobile/.env.example to apps/mobile/.env and replace
 127.0.0.1 with the computer's LAN address when using a physical phone.
 
+## Repository integration
+
+The external repository decisions and licence boundaries are documented in docs/REPOSITORY_INTEGRATION.md. The first shared research workflow is available at POST /api/v1/research/analyze; it is advisory-only and paper-only.
+
 ## First vertical slice
 
 Load normalized market data -> run a saved scan -> inspect a chart -> view RRG -> backtest the same rule -> preview a paper order with margin and charges.

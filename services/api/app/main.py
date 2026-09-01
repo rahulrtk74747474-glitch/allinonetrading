@@ -12,6 +12,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from .brokers.angel_one import AngelOneAdapter
+from .research.models import ResearchRequest
+from .research.service import build_research_report
 
 
 def cors_origins() -> list[str]:
@@ -353,6 +355,13 @@ def optimizer_preview() -> dict:
         ],
         "status": "Optimizer contract ready; execution will be connected after historical data is loaded.",
     }
+
+
+@app.post("/api/v1/research/analyze")
+def research_analyze(request: ResearchRequest) -> dict:
+    symbol = request.symbol.strip().upper()
+    quote = next((item for item in SAMPLE_QUOTES if item["symbol"] == symbol), None)
+    return build_research_report(request, quote).model_dump()
 
 
 @app.get("/api/v1/broker/status")

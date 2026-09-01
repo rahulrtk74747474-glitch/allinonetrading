@@ -37,7 +37,7 @@ import {
   Zap,
 } from "lucide-react";
 
-type View = "overview" | "screener" | "rrg" | "backtest" | "options" | "arbitrage" | "settings";
+type View = "overview" | "screener" | "rrg" | "backtest" | "options" | "arbitrage" | "research" | "settings";
 type Operator = ">" | "<" | ">=" | "<=" | "=";
 
 type Condition = {
@@ -65,6 +65,24 @@ type RrgPoint = {
   rsRatio: number;
   rsMomentum: number;
   quadrant: "leading" | "weakening" | "lagging" | "improving";
+};
+
+type ResearchReport = {
+  report_id: string;
+  symbol: string;
+  mode: string;
+  data_quality: string;
+  as_of: string;
+  decision: string;
+  confidence: number;
+  summary: string;
+  findings: Array<{ role: string; title: string; conclusion: string; confidence: number }>;
+  evidence: Array<{ id: string; role: string; status: string; summary: string }>;
+  risks: string[];
+  next_actions: string[];
+  agent_trace: string[];
+  approval_required: boolean;
+  warnings: string[];
 };
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -227,7 +245,7 @@ function App() {
           })}
 
           <div className="nav-caption nav-caption-space">TOOLS</div>
-          <button className="nav-item" onClick={() => setNotice("Strategy assistant will remain advisory-only and cannot place orders.")}>
+          <button className="nav-item" onClick={() => { setNotice("Research Copilot is advisory-only and cannot place orders."); selectView("research"); }}>
             <Bot size={17} />
             <span>Research Copilot</span>
             <span className="beta-tag">BETA</span>
@@ -264,7 +282,7 @@ function App() {
           <div className="breadcrumbs">
             <span>Workspace</span>
             <ChevronRight size={14} />
-            <strong>{navItems.find((item) => item.id === view)?.label || "Settings"}</strong>
+            <strong>{navItems.find((item) => item.id === view)?.label || (view === "research" ? "Research Copilot" : "Settings")}</strong>
           </div>
           <div className="top-actions">
             <div className="market-state"><span className="live-dot" /> Market closed</div>
@@ -300,6 +318,7 @@ function App() {
           {view === "backtest" && <BacktestView />}
           {view === "options" && <OptionsView />}
           {view === "arbitrage" && <ArbitrageView />}
+          {view === "research" && <ResearchView />}
           {view === "settings" && <SettingsView />}
         </div>
       </main>
@@ -427,6 +446,79 @@ function MiniChart() {
       </svg>
       <div className="chart-axis"><span>01 Aug</span><span>08 Aug</span><span>15 Aug</span><span>22 Aug</span><span>28 Aug</span></div>
     </div>
+  );
+}
+
+
+function ResearchView() {
+  const [symbol, setSymbol] = useState("RELIANCE");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("Run the deterministic research packet against the shared API.");
+  const [report, setReport] = useState<ResearchReport | null>(null);
+
+  async function analyze() {
+    setLoading(true);
+    setMessage("");
+    try {
+      const response = await fetch(API_URL + "/api/v1/research/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol,
+          timeframe: "1d",
+          universe: "nifty50",
+          include_news: true,
+          include_fundamentals: true,
+        }),
+      });
+      if (!response.ok) throw new Error("Research API unavailable");
+      const data = await response.json() as ResearchReport;
+      setReport(data);
+      setMessage("Research packet updated. Review evidence and risks before creating any paper action.");
+    } catch {
+      setMessage("Backend unavailable. Start the FastAPI service, then run the analysis again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <div className="page-heading compact-heading">
+        <div>
+          <div className="eyebrow">ADVISORY RESEARCH · NO ORDER AUTHORITY</div>
+          <h1>Research Copilot<span className="accent">.</span></h1>
+          <p>TradingAgents-inspired specialist roles with deterministic evidence and explicit uncertainty.</p>
+        </div>
+        <div className="heading-actions">
+          <div className="search-box"><Search size={15} /><input value={symbol} onChange={(event) => setSymbol(event.currentTarget.value.toUpperCase())} aria-label="Research symbol" /></div>
+          <button className="primary-button" onClick={analyze} disabled={loading}>{loading ? <RefreshCw className="spin" size={15} /> : <Sparkles size={15} />}{loading ? "Analyzing..." : "Analyze"}</button>
+        </div>
+      </div>
+
+      {!report && <div className="panel"><div className="panel-header"><div><span className="panel-kicker">RESEARCH PACKET</span><h3>Evidence-first workflow</h3></div><span className="status-badge purple-badge">Advisory only</span></div><p className="muted">{message}</p><div className="action-list"><ActionItem icon={Database} title="Freeze a market snapshot" detail="Every future report will carry source and as-of metadata." onClick={analyze} /><ActionItem icon={ShieldCheck} title="Require manual approval" detail="Agents cannot place or approve orders." onClick={() => setMessage("Manual approval gate remains enabled for every paper action.")} /></div></div>}
+      {report && (
+        <div className="settings-grid">
+          <div className="panel">
+            <div className="panel-header"><div><span className="panel-kicker">{report.mode.toUpperCase()} · {report.data_quality.toUpperCase()}</span><h3>{report.symbol} · {report.decision.replace("_", " ")}</h3></div><span className="status-badge green-badge">{Math.round(report.confidence * 100)}% confidence</span></div>
+            <p>{report.summary}</p>
+            <div className="settings-note"><ShieldCheck size={14} /> Manual approval required: {report.approval_required ? "yes" : "no"} · order authority: {report.order_authority}</div>
+            <div className="check-list">{report.agent_trace.map((step) => <div className="check-line" key={step}><Sparkles size={14} /><span>{step}</span><span className="muted">logged</span></div>)}</div>
+          </div>
+          <div className="panel">
+            <div className="panel-header"><div><span className="panel-kicker">SPECIALIST FINDINGS</span><h3>What the packet says</h3></div><span className="status-badge orange-badge">{new Date(report.as_of).toLocaleString()}</span></div>
+            {report.findings.map((finding) => <div className="action-item" key={finding.role}><div className="action-icon"><Bot size={16} /></div><div><strong>{finding.title}</strong><span>{finding.conclusion}</span></div><span className="muted">{Math.round(finding.confidence * 100)}%</span></div>)}
+          </div>
+          <div className="panel">
+            <div className="panel-header"><div><span className="panel-kicker">EVIDENCE & RISKS</span><h3>What is still missing</h3></div><ShieldCheck className="green-icon" size={20} /></div>
+            {report.evidence.map((item) => <div className="check-line" key={item.id}><Database size={14} /><span>{item.role}: {item.summary}</span><span className="muted">{item.status}</span></div>)}
+            {report.risks.map((risk) => <div className="settings-note" key={risk}><ShieldCheck size={14} />{risk}</div>)}
+            {report.warnings.map((warning) => <div className="warning-card" key={warning}><ShieldCheck size={14} /><span>{warning}</span></div>)}
+          </div>
+        </div>
+      )}
+      {report && <div className="panel"><div className="panel-header"><div><span className="panel-kicker">NEXT ACTIONS</span><h3>Safe progression</h3></div><SlidersHorizontal size={18} className="violet-icon" /></div><div className="action-list">{report.next_actions.map((action) => <ActionItem icon={ArrowUpRight} title={action} detail="Queued as a research step; no order is created." onClick={() => setMessage(action)} key={action} />)}</div><p className="muted">{message}</p></div>}
+    </>
   );
 }
 

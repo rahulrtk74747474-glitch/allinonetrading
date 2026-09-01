@@ -3,13 +3,14 @@ import { StatusBar } from "expo-status-bar";
 import {
   Pressable,
   SafeAreaView,
+  TextInput,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 
-type Tab = "home" | "scan" | "rrg" | "orders";
+type Tab = "home" | "scan" | "rrg" | "research" | "orders";
 
 const colors = {
   bg: "#08111f",
@@ -53,6 +54,7 @@ export default function App() {
         {tab === "home" && <HomeScreen onTab={setTab} />}
         {tab === "scan" && <ScanScreen />}
         {tab === "rrg" && <RrgScreen />}
+        {tab === "research" && <ResearchScreen />}
         {tab === "orders" && <OrdersScreen />}
       </ScrollView>
 
@@ -60,6 +62,7 @@ export default function App() {
         <NavButton label="Home" icon="⌂" active={tab === "home"} onPress={() => setTab("home")} />
         <NavButton label="Screener" icon="⌕" active={tab === "scan"} onPress={() => setTab("scan")} />
         <NavButton label="RRG" icon="◎" active={tab === "rrg"} onPress={() => setTab("rrg")} />
+        <NavButton label="Research" icon="✦" active={tab === "research"} onPress={() => setTab("research")} />
         <NavButton label="Paper book" icon="▤" active={tab === "orders"} onPress={() => setTab("orders")} />
       </View>
     </SafeAreaView>
@@ -174,6 +177,51 @@ function RrgScreen() {
   );
 }
 
+function ResearchScreen() {
+  const [symbol, setSymbol] = useState("RELIANCE");
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("Run the shared advisory research packet.");
+  const [summary, setSummary] = useState<string | null>(null);
+  const [decision, setDecision] = useState<string | null>(null);
+  const [risks, setRisks] = useState<string[]>([]);
+
+  async function analyze() {
+    setLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/v1/research/analyze`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, timeframe: "1d", universe: "nifty50", include_news: true, include_fundamentals: true }),
+      });
+      if (!response.ok) throw new Error("API unavailable");
+      const data = await response.json();
+      setSummary(data.summary || "No summary returned.");
+      setDecision(data.decision || "watch");
+      setRisks(Array.isArray(data.risks) ? data.risks : []);
+      setMessage("Evidence packet loaded; paper approval is still required.");
+    } catch {
+      setMessage("Backend unavailable. Start FastAPI, then try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <Text style={styles.eyebrow}>ADVISORY RESEARCH · PAPER ONLY</Text>
+      <Text style={styles.heading}>Research Copilot</Text>
+      <Text style={styles.body}>Specialist-style analysis with evidence, uncertainty and no order authority.</Text>
+      <View style={styles.formCard}>
+        <Text style={styles.fieldLabel}>SYMBOL</Text>
+        <TextInput style={styles.input} value={symbol} onChangeText={(value) => setSymbol(value.toUpperCase())} autoCapitalize="characters" />
+        <Pressable style={styles.primary} onPress={analyze} disabled={loading}><Text style={styles.primaryText}>{loading ? "Analyzing..." : "Analyze symbol"}</Text><Text style={styles.primaryArrow}>→</Text></Pressable>
+      </View>
+      {summary && <View style={styles.orderCard}><Text style={styles.orderLabel}>RESEARCH STATE · {String(decision).replace("_", " ").toUpperCase()}</Text><Text style={styles.orderTitle}>{summary}</Text><Text style={styles.warningText}>Manual approval required · agents cannot place orders.</Text>{risks.map((risk) => <Text style={[styles.rowSub, { marginTop: 9 }]} key={risk}>• {risk}</Text>)}</View>}
+      <View style={styles.warning}><Text style={styles.warningIcon}>!</Text><Text style={styles.warningText}>{message}</Text></View>
+    </>
+  );
+}
+
 function OrdersScreen() {
   return (
     <>
@@ -218,6 +266,7 @@ const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 4, backgroundColor: colors.green },
   modeText: { color: colors.green, fontSize: 9, fontWeight: "700" },
   content: { padding: 20, paddingBottom: 35 },
+  input: { color: colors.text, backgroundColor: "#0a1727", borderColor: "#27415c", borderWidth: 1, borderRadius: 6, padding: 10, marginBottom: 12 },
   eyebrow: { color: "#6f88a5", fontSize: 9, letterSpacing: 1.5, fontWeight: "700", marginTop: 8 },
   heading: { color: colors.text, fontSize: 28, fontWeight: "700", marginTop: 7, letterSpacing: -0.7 },
   body: { color: colors.muted, fontSize: 12, lineHeight: 19, marginTop: 6, marginBottom: 22 },

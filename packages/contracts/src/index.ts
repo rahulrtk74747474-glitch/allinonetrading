@@ -81,3 +81,54 @@ export interface ApiStatus {
   liveTrading: boolean;
   broker: string;
 }
+
+
+export type ResearchDecision = "watch" | "paper_candidate" | "no_trade";
+export type ResearchEvidenceStatus = "demo" | "available" | "not_loaded";
+
+export interface ResearchRequest {
+  symbol: string;
+  timeframe: Timeframe;
+  universe: string;
+  include_news?: boolean;
+  include_fundamentals?: boolean;
+}
+
+export interface ResearchEvidence {
+  id: string;
+  role: string;
+  source: string;
+  as_of: string;
+  status: ResearchEvidenceStatus;
+  summary: string;
+  values: Record<string, number | string | null>;
+}
+
+export interface ResearchFinding {
+  role: string;
+  title: string;
+  conclusion: string;
+  confidence: number;
+  evidence_ids: string[];
+}
+
+export interface ResearchReport {
+  report_id: string;
+  symbol: string;
+  timeframe: Timeframe;
+  universe: string;
+  mode: "demo" | "paper" | "connected";
+  data_quality: ResearchEvidenceStatus;
+  as_of: string;
+  decision: ResearchDecision;
+  confidence: number;
+  summary: string;
+  findings: ResearchFinding[];
+  evidence: ResearchEvidence[];
+  risks: string[];
+  next_actions: string[];
+  agent_trace: string[];
+  order_authority: "none";
+  approval_required: boolean;
+  warnings: string[];
+}
