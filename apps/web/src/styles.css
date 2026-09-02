@@ -151,7 +151,7 @@ input:focus, select:focus { border-color: #4f98d7; box-shadow: 0 0 0 3px rgba(77
 .condition-list { display: grid; gap: 7px; }
 .condition-card { border: 1px solid transparent; border-radius: 7px; background: rgba(7, 20, 34, .38); padding: 5px; }
 .condition-card:focus-within { border-color: #244868; background: rgba(11, 31, 50, .62); }
-.condition-row { display: grid; grid-template-columns: 22px minmax(130px, 1.6fr) 82px 72px minmax(90px, 1fr) 58px 25px; gap: 5px; align-items: center; }
+.condition-row { display: grid; grid-template-columns: 22px minmax(130px, 1.5fr) minmax(118px, .9fr) 72px minmax(90px, 1fr) 58px 25px; gap: 5px; align-items: center; }
 .condition-row select, .condition-row input { min-width: 0; margin-top: 0; padding: 8px 6px; font-size: 10px; }
 .condition-row .operator-select { text-align: center; }
 .condition-index { color: #506b88; font-size: 9px; }
@@ -167,6 +167,9 @@ input:focus, select:focus { border-color: #4f98d7; box-shadow: 0 0 0 3px rgba(77
 .data-requirement { align-self: center; color: #f4b878; border: 1px solid #6c4b2e; border-radius: 10px; background: #38281e; padding: 4px 7px; font-size: 8px; text-transform: capitalize; }
 .remove-condition { display: grid; place-items: center; border: 0; color: #5a7693; background: transparent; padding: 4px; }
 .remove-condition:hover { color: var(--red); }
+.remove-right-button { align-self: center; border: 1px solid #3a4f67; border-radius: 10px; color: #9db2c8; background: #102237; padding: 4px 8px; font-size: 8px; }
+.remove-right-button:hover:not(:disabled) { color: #ffd0d9; border-color: #7b4553; background: #321d27; }
+.remove-right-button:disabled { opacity: .4; cursor: not-allowed; }
 .add-condition { display: inline-flex; align-items: center; gap: 5px; border: 1px dashed #315475; border-radius: 6px; margin-top: 12px; width: 100%; justify-content: center; color: #80baf0; background: #0c2033; padding: 9px; font-size: 10px; }
 .advanced-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line-soft); margin-top: 17px; padding-top: 14px; }
 .nested-group { border: 1px solid #294966; border-radius: 8px; background: rgba(16, 42, 65, .42); margin-top: 12px; padding: 10px; }

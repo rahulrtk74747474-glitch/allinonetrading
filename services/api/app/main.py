@@ -2,16 +2,18 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Literal
+from datetime import date
+from typing import Any, Literal
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictFloat, StrictInt
 from dotenv import load_dotenv
 
 load_dotenv()
 
 from .brokers.angel_one import AngelOneAdapter
+from .fundamental_store import FundamentalStore, attach_fundamentals
 from .research.models import ResearchRequest
 from .research.service import build_research_report
 from .screener import catalog_response, request_field_warnings, scan_rows
@@ -115,6 +117,17 @@ class CandleRequest(BaseModel):
     to_date: str
 
 
+class FundamentalImportRow(BaseModel):
+    symbol: str = Field(min_length=1, max_length=50, pattern=r"^[A-Za-z0-9._&-]+$")
+    as_of: date
+    source: str = Field(min_length=1, max_length=120)
+    values: dict[str, StrictFloat | StrictInt | None] = Field(min_length=1, max_length=1000)
+
+
+class FundamentalImportRequest(BaseModel):
+    rows: list[FundamentalImportRow] = Field(min_length=1, max_length=2000)
+
+
 SAMPLE_QUOTES = [
     {"symbol": "RELIANCE", "exchange": "NSE", "industry": "Refineries", "sector": "Energy", "marketcapname": "Large Cap", "open": 2894.0, "high": 2961.8, "low": 2882.3, "close": 2942.40, "ltp": 2942.40, "vwap": 2927.6, "change_pct": 1.84, "volume": 8420000, "rsi": 64.2, "score": 86, "fno_lot_size": 250},
     {"symbol": "ICICIBANK", "exchange": "NSE", "industry": "Private Sector Bank", "sector": "Banks", "marketcapname": "Large Cap", "open": 1309.4, "high": 1335.2, "low": 1305.1, "close": 1328.65, "ltp": 1328.65, "vwap": 1322.4, "change_pct": 1.25, "volume": 6110000, "rsi": 61.7, "score": 82, "fno_lot_size": 700},
@@ -125,6 +138,9 @@ SAMPLE_QUOTES = [
     {"symbol": "INFY", "exchange": "NSE", "industry": "IT Services", "sector": "IT", "marketcapname": "Large Cap", "open": 1950.2, "high": 1958.4, "low": 1928.6, "close": 1936.55, "ltp": 1936.55, "vwap": 1941.5, "change_pct": -0.74, "volume": 3510000, "rsi": 44.9, "score": 46, "fno_lot_size": 400},
     {"symbol": "AXISBANK", "exchange": "NSE", "industry": "Private Sector Bank", "sector": "Banks", "marketcapname": "Large Cap", "open": 1202.8, "high": 1221.4, "low": 1198.9, "close": 1215.80, "ltp": 1215.80, "vwap": 1212.1, "change_pct": 0.86, "volume": 4790000, "rsi": 59.8, "score": 76, "fno_lot_size": 625},
 ]
+
+
+fundamental_store = FundamentalStore()
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -182,11 +198,13 @@ def health() -> dict:
 
 @app.get("/api/v1/status")
 def status() -> dict:
+    fundamental_status = fundamental_store.status()
     return {
         "appMode": "demo",
         "paperTrading": env_bool("PAPER_TRADING", True),
         "liveTrading": env_bool("LIVE_TRADING", False),
         "broker": "Angel One SmartAPI (not connected)",
+        "fundamentals": fundamental_status,
     }
 
 
@@ -208,9 +226,45 @@ def screener_catalog() -> dict:
     return catalog_response()
 
 
+@app.get("/api/v1/fundamentals/status")
+def fundamentals_status() -> dict:
+    return fundamental_store.status()
+
+
+@app.get("/api/v1/fundamentals/{symbol}")
+def fundamental_snapshot(symbol: str) -> dict:
+    snapshot = fundamental_store.snapshot_for_symbol(symbol)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="No imported fundamental values for this symbol.")
+    return snapshot
+
+
+@app.post("/api/v1/fundamentals/import")
+def import_fundamentals(request: FundamentalImportRequest) -> dict[str, Any]:
+    rows = [
+        {
+            "symbol": row.symbol,
+            "as_of": row.as_of.isoformat(),
+            "source": row.source,
+            "values": row.values,
+        }
+        for row in request.rows
+    ]
+    try:
+        result = fundamental_store.upsert(rows)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {
+        **result,
+        "status": fundamental_store.status(),
+        "warning": "Keep this import endpoint private; add authentication before any public deployment.",
+    }
+
+
 @app.post("/api/v1/screener/scan")
 def run_scan(request: ScanRequest) -> dict:
-    field_warnings = request_field_warnings(request)
+    quotes = attach_fundamentals(SAMPLE_QUOTES, fundamental_store)
+    field_warnings = request_field_warnings(request, quotes)
     return {
         "mode": "demo",
         "universe": request.universe,
@@ -218,8 +272,9 @@ def run_scan(request: ScanRequest) -> dict:
         "logic": request.logic,
         "conditionsApplied": len(request.conditions) + sum(len(group.conditions) for group in request.groups),
         "groupsApplied": len(request.groups),
-        "results": scan_rows(request, SAMPLE_QUOTES),
+        "results": scan_rows(request, quotes),
         "fieldWarnings": field_warnings,
+        "fundamentalData": fundamental_store.status(),
         "warning": "The rule engine is active on deterministic demo/replay data. SmartAPI universe streaming is the next data-adapter step.",
     }
 

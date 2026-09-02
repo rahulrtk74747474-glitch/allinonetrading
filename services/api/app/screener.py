@@ -5,6 +5,8 @@ from collections.abc import Iterable
 from statistics import fmean, pstdev
 from typing import Any
 
+from .fundamental_catalog import CATEGORY_META, FUNDAMENTAL_FIELDS, FUNDAMENTAL_FIELD_IDS
+
 
 def field(
     field_id: str,
@@ -164,6 +166,10 @@ SCREENER_FIELDS: list[dict[str, Any]] = [
     field("bollinger_middle", "Middle Bollinger band", "indicators", kind="indicator", parameters=[PERIOD_PARAMETER, SOURCE_PARAMETER]),
     field("bollinger_lower", "Lower Bollinger band", "indicators", kind="indicator", parameters=[PERIOD_PARAMETER, SOURCE_PARAMETER, {"name": "stddev", "label": "Std deviations", "type": "number", "default": 2}]),
     field("score", "Momentum score", "indicators"),
+
+    # Provider-backed statement, ratio and ownership fields. These are never
+    # synthesized from prices: a missing imported value resolves to None.
+    *FUNDAMENTAL_FIELDS,
 ]
 
 
@@ -176,6 +182,7 @@ CATEGORY_LABELS = {
     "math_functions": "Math Functions",
     "pivots": "Pivots",
     "indicators": "Indicators",
+    **{category_id: str(metadata["label"]) for category_id, metadata in CATEGORY_META.items()},
 }
 
 FIELD_INDEX = {item["id"]: item for item in SCREENER_FIELDS}
@@ -192,11 +199,25 @@ def catalog_response() -> dict[str, Any]:
             }
         )
     return {
-        "version": "2026.09.1",
+        "version": "2026.09.2",
         "categories": categories,
         "operators": {
             "number": [">", "<", ">=", "<=", "=", "!=", "crosses_above", "crosses_below"],
             "string": ["=", "!=", "contains", "not_contains", "starts_with", "ends_with"],
+        },
+        "operatorLabels": {
+            "=": "Equals",
+            "!=": "Not equals",
+            ">": "Greater than",
+            ">=": "Greater than or equal to",
+            "<": "Less than",
+            "<=": "Less than or equal to",
+            "crosses_above": "Crossed above",
+            "crosses_below": "Crossed below",
+            "contains": "Contains",
+            "not_contains": "Does not contain",
+            "starts_with": "Starts with",
+            "ends_with": "Ends with",
         },
         "availability": {
             "ready": "Calculated from OHLCV or the current scan universe.",
@@ -204,6 +225,9 @@ def catalog_response() -> dict[str, Any]:
             "tick_feed_required": "Needs classified tick-by-tick trades for live scans.",
             "depth_feed_required": "Needs current market-depth snapshots for live scans.",
             "depth_history_required": "Needs locally accumulated depth events for live scans.",
+            "fundamentals_required": "Needs a verified financial-results provider or imported dataset.",
+            "shareholding_required": "Needs a verified shareholding-pattern provider or imported dataset.",
+            "cashflow_required": "Needs a verified cash-flow provider or imported dataset.",
         },
     }
 
@@ -244,6 +268,10 @@ def _generated_close_history(quote: dict[str, Any], bars: int = 520) -> list[flo
 
 def _series(quote: dict[str, Any], source: str) -> list[float]:
     closes = _generated_close_history(quote)
+    if source in FUNDAMENTAL_FIELD_IDS:
+        fundamentals = quote.get("fundamentals", {})
+        value = _number(fundamentals.get(source)) if isinstance(fundamentals, dict) else None
+        return [value for _ in closes] if value is not None else []
     if source in {"close", "ltp"}:
         return closes
     seed = (sum(ord(character) for character in str(quote.get("symbol", ""))) % 11) + 2
@@ -494,6 +522,15 @@ def _base_value(quote: dict[str, Any], field_id: str, lookback: int = 0) -> floa
     }
     field_id = aliases.get(field_id, field_id)
     definition = FIELD_INDEX.get(field_id)
+    if field_id in FUNDAMENTAL_FIELD_IDS:
+        fundamentals = quote.get("fundamentals", {})
+        if not isinstance(fundamentals, dict):
+            return None
+        # The initial provider contract stores the latest verified snapshot.
+        # Bars-ago/crossing support will require dated snapshot history.
+        if lookback:
+            return None
+        return _number(fundamentals.get(field_id))
     if field_id in {"symbol", "industry", "sector", "marketcapname"}:
         return str(quote.get(field_id, ""))
     if lookback and definition and definition["kind"] == "field" and definition["valueType"] == "number":
@@ -581,9 +618,9 @@ def resolve_value(
     if field_id == "bracket":
         return resolve_value(quote, source, {}, universe, lookback)
     if field_id == "min":
-        return min(values[-period:])
+        return min(values[-period:]) if values else None
     if field_id == "max":
-        return max(values[-period:])
+        return max(values[-period:]) if values else None
     if field_id in {"greatest", "least"}:
         names = [name.strip() for name in str(parameters.get("fields", "open,high,low,close")).split(",") if name.strip()]
         candidates = [_number(resolve_value(quote, name, {}, universe, lookback)) for name in names]
@@ -592,6 +629,8 @@ def resolve_value(
             return None
         return max(numbers) if field_id == "greatest" else min(numbers)
     if field_id in {"count", "countstreak"}:
+        if not values:
+            return None
         threshold = float(_number(parameters.get("threshold")) or 0.0)
         predicate = str(parameters.get("predicate", ">"))
         window = values[-period:]
@@ -798,20 +837,39 @@ def scan_rows(request: Any, quotes: list[dict[str, Any]]) -> list[dict[str, Any]
     return rows[: request.limit]
 
 
-def request_field_warnings(request: Any) -> list[str]:
+def request_field_warnings(
+    request: Any,
+    quotes: list[dict[str, Any]] | None = None,
+) -> list[str]:
     field_ids: set[str] = set()
-    for condition in request.conditions:
-        field_ids.add(condition.field)
-        if getattr(condition, "compare_field", None):
-            field_ids.add(condition.compare_field)
+    all_conditions = list(request.conditions)
     for group in getattr(request, "groups", []):
-        for condition in group.conditions:
-            field_ids.add(condition.field)
-            if getattr(condition, "compare_field", None):
-                field_ids.add(condition.compare_field)
+        all_conditions.extend(group.conditions)
+
+    def add_parameter_fields(field_id: str | None, parameters: dict[str, Any]) -> None:
+        definition = FIELD_INDEX.get(field_id or "")
+        if definition is None:
+            return
+        for parameter in definition["parameters"]:
+            if parameter.get("type") != "field":
+                continue
+            referenced = parameters.get(parameter["name"], parameter.get("default"))
+            if isinstance(referenced, str):
+                field_ids.add(referenced)
+        if field_id in {"greatest", "least"}:
+            names = str(parameters.get("fields", "open,high,low,close")).split(",")
+            field_ids.update(name.strip() for name in names if name.strip())
+
+    for condition in all_conditions:
+        field_ids.add(condition.field)
+        add_parameter_fields(condition.field, getattr(condition, "parameters", {}) or {})
+        compare_field = getattr(condition, "compare_field", None)
+        if compare_field:
+            field_ids.add(compare_field)
+            add_parameter_fields(compare_field, getattr(condition, "compare_parameters", {}) or {})
 
     warnings: list[str] = []
-    by_availability: dict[str, list[str]] = {}
+    by_availability: dict[str, list[dict[str, Any]]] = {}
     for field_id in sorted(field_ids):
         definition = FIELD_INDEX.get(field_id)
         if definition is None:
@@ -819,13 +877,57 @@ def request_field_warnings(request: Any) -> list[str]:
             continue
         availability = definition["availability"]
         if availability != "ready":
-            by_availability.setdefault(availability, []).append(definition["label"])
+            by_availability.setdefault(availability, []).append(definition)
     messages = {
         "metadata_required": "Live metadata mapping is required",
         "tick_feed_required": "Classified tick data is required for live trade-book fields",
         "depth_feed_required": "SmartAPI FULL depth snapshots are required for live order-book fields",
         "depth_history_required": "Locally accumulated depth history is required for cancellation fields",
+        "fundamentals_required": "A verified financial-results import/provider is required",
+        "shareholding_required": "A verified shareholding-pattern import/provider is required",
+        "cashflow_required": "A verified cash-flow import/provider is required",
     }
-    for availability, labels in by_availability.items():
-        warnings.append(f"{messages.get(availability, availability)}: {', '.join(labels)}. Demo/replay evaluation remains available.")
+    for availability, definitions in by_availability.items():
+        labels = [definition["label"] for definition in definitions]
+        if availability in {"fundamentals_required", "shareholding_required", "cashflow_required"}:
+            required_ids = {definition["id"] for definition in definitions}
+            covered_rows = 0
+            if quotes is not None:
+                covered_rows = sum(
+                    required_ids.issubset(
+                        set(quote.get("fundamentals", {}))
+                        if isinstance(quote.get("fundamentals"), dict)
+                        else set()
+                    )
+                    for quote in quotes
+                )
+            if covered_rows:
+                warnings.append(
+                    f"Imported {availability.replace('_required', '')} data covers all selected fields for "
+                    f"{covered_rows}/{len(quotes or [])} scanned symbols. Rows with missing values do not match."
+                )
+            else:
+                warnings.append(
+                    f"{messages[availability]}: {', '.join(labels)}. "
+                    "Rows with missing values do not match; no fundamental values are synthesized."
+                )
+        else:
+            warnings.append(f"{messages.get(availability, availability)}: {', '.join(labels)}. Demo/replay evaluation remains available.")
+    crossed_snapshot_fields = [
+        condition.field
+        for condition in all_conditions
+        if condition.operator in {"crosses_above", "crosses_below"}
+        and (
+            condition.field in FUNDAMENTAL_FIELD_IDS
+            or any(
+                value in FUNDAMENTAL_FIELD_IDS
+                for value in (getattr(condition, "parameters", {}) or {}).values()
+                if isinstance(value, str)
+            )
+        )
+    ]
+    if crossed_snapshot_fields:
+        warnings.append(
+            "Crossed above/below on fundamentals needs dated snapshot history; the current import contract stores the latest snapshot only."
+        )
     return warnings

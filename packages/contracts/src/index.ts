@@ -30,7 +30,10 @@ export type ScreenerFieldAvailability =
   | "metadata_required"
   | "tick_feed_required"
   | "depth_feed_required"
-  | "depth_history_required";
+  | "depth_history_required"
+  | "fundamentals_required"
+  | "shareholding_required"
+  | "cashflow_required";
 
 export interface ScreenerFieldParameter {
   name: string;
@@ -51,6 +54,9 @@ export interface ScreenerFieldDefinition {
   description: string;
   availability: ScreenerFieldAvailability;
   parameters: ScreenerFieldParameter[];
+  unit?: string;
+  historyMode?: "latest_snapshot";
+  dataSource?: "fundamentals_import";
 }
 
 export interface ScreenerCategory {
@@ -96,6 +102,25 @@ export interface ScreenerResult {
   signal: string;
   score: number;
   metrics?: Record<string, number | string | null>;
+}
+
+export interface FundamentalImportRow {
+  symbol: string;
+  as_of: string;
+  source: string;
+  values: Record<string, number | null>;
+}
+
+export interface FundamentalImportRequest {
+  rows: FundamentalImportRow[];
+}
+
+export interface FundamentalDataStatus {
+  configured: boolean;
+  symbols: number;
+  values: number;
+  latestAsOf: string | null;
+  sources: string[];
 }
 
 export interface RrgTrailPoint {

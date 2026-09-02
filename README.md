@@ -43,19 +43,29 @@ The browser and mobile clients will call the same backend. Broker credentials an
 The web terminal and Expo Android/iOS client now use the same catalog-driven
 screener API:
 
-- `GET /api/v1/screener/catalog` returns 93 selectable fields and functions.
+- `GET /api/v1/screener/catalog` returns 460 selectable fields and functions.
 - `POST /api/v1/screener/scan` evaluates ALL/ANY rules and nested sub-filters.
 - Rules support constants, field-to-field comparisons, per-side indicator
   parameters, bar offsets, timeframes and cross-above/cross-below operators.
 - The catalog includes OHLCV, Heikin-Ashi, VWAP, FnO lot size, trade-book and
   order-book measures, group and math functions, pivots, moving averages,
   RSI, Parabolic SAR and Bollinger bands.
+- The additional 367 fields cover financial results, valuation, shareholding,
+  cash flow, bank fundamentals and financial ratios.
 
 OHLCV calculations work with candle data. Live trade-book rules require
 classified ticks; live order-book rules require depth snapshots; cancellation
 rules require locally accumulated depth history. The UI labels these
 requirements, and the API returns `fieldWarnings` instead of presenting demo
 values as live broker observations.
+
+Financial statements and shareholding values are not supplied by the SmartAPI
+price/order adapter. Load a verified dataset through the private
+`POST /api/v1/fundamentals/import` endpoint; the latest values are kept in the
+ignored local SQLite database under `data/local/`. Missing values resolve to
+`null` and do not match a rule. See
+[`docs/FUNDAMENTALS_IMPORT.md`](docs/FUNDAMENTALS_IMPORT.md) for the contract and
+examples.
 
 ## Run the current demo
 

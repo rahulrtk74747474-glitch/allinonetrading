@@ -58,7 +58,7 @@ type ScreenerField = {
   kind: "field" | "function" | "indicator" | "measure" | "group";
   valueType: "number" | "string" | "group";
   description: string;
-  availability: "ready" | "metadata_required" | "tick_feed_required" | "depth_feed_required" | "depth_history_required";
+  availability: "ready" | "metadata_required" | "tick_feed_required" | "depth_feed_required" | "depth_history_required" | "fundamentals_required" | "shareholding_required" | "cashflow_required";
   parameters: FieldParameter[];
 };
 
@@ -125,6 +125,32 @@ type ResearchReport = {
 };
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+
+const operatorLabels: Record<Operator, string> = {
+  "=": "Equals",
+  "!=": "Not equals",
+  ">": "Greater than",
+  ">=": "Greater than or equal to",
+  "<": "Less than",
+  "<=": "Less than or equal to",
+  contains: "Contains",
+  not_contains: "Does not contain",
+  starts_with: "Starts with",
+  ends_with: "Ends with",
+  crosses_above: "Crossed above",
+  crosses_below: "Crossed below",
+};
+
+function availabilityLabel(availability: ScreenerField["availability"]): string {
+  if (availability === "fundamentals_required") return "Financial data";
+  if (availability === "shareholding_required") return "Shareholding data";
+  if (availability === "cashflow_required") return "Cash-flow data";
+  if (availability === "depth_history_required") return "Depth history";
+  if (availability === "depth_feed_required") return "Market depth";
+  if (availability === "tick_feed_required") return "Tick data";
+  if (availability === "metadata_required") return "Metadata";
+  return "Ready";
+}
 
 function fallbackField(id: string, label: string, category: string, availability: ScreenerField["availability"] = "ready"): ScreenerField {
   return { id, label, category, kind: "field", valueType: ["symbol", "industry", "sector", "marketcapname"].includes(id) ? "string" : "number", description: "", availability, parameters: [] };
@@ -277,6 +303,18 @@ function App() {
     setConditions((current) => current.filter((condition) => condition.id !== id));
   }
 
+  function removeConditionsRight(id: string, groupId?: string) {
+    const keepThrough = (items: Condition[]) => {
+      const index = items.findIndex((condition) => condition.id === id);
+      return index < 0 ? items : items.slice(0, index + 1);
+    };
+    if (groupId) {
+      setGroups((current) => current.map((group) => group.id === groupId ? { ...group, conditions: keepThrough(group.conditions) } : group));
+      return;
+    }
+    setConditions(keepThrough);
+  }
+
   function addGroup() {
     const id = "group-" + String(Date.now());
     setGroups((current) => [...current, { id, logic: "all", conditions: [newCondition()] }]);
@@ -420,6 +458,7 @@ function App() {
               onUpdateCondition={updateCondition}
               onAddCondition={addCondition}
               onRemoveCondition={removeCondition}
+              onRemoveConditionsRight={removeConditionsRight}
               onAddGroup={addGroup}
               onUpdateGroup={updateGroup}
               onRemoveGroup={(id) => setGroups((current) => current.filter((group) => group.id !== id))}
@@ -634,7 +673,7 @@ function ResearchView() {
   );
 }
 
-function Screener({ universe, timeframe, logic, conditions, groups, catalog, results, warnings, onUniverse, onTimeframe, onLogic, onUpdateCondition, onAddCondition, onRemoveCondition, onAddGroup, onUpdateGroup, onRemoveGroup, onRunScan }: {
+function Screener({ universe, timeframe, logic, conditions, groups, catalog, results, warnings, onUniverse, onTimeframe, onLogic, onUpdateCondition, onAddCondition, onRemoveCondition, onRemoveConditionsRight, onAddGroup, onUpdateGroup, onRemoveGroup, onRunScan }: {
   universe: string;
   timeframe: string;
   logic: Logic;
@@ -649,6 +688,7 @@ function Screener({ universe, timeframe, logic, conditions, groups, catalog, res
   onUpdateCondition: (id: string, patch: Partial<Condition>, groupId?: string) => void;
   onAddCondition: (groupId?: string) => void;
   onRemoveCondition: (id: string, groupId?: string) => void;
+  onRemoveConditionsRight: (id: string, groupId?: string) => void;
   onAddGroup: () => void;
   onUpdateGroup: (id: string, patch: Partial<FilterGroup>) => void;
   onRemoveGroup: (id: string) => void;
@@ -702,7 +742,7 @@ function Screener({ universe, timeframe, logic, conditions, groups, catalog, res
           {pickerTarget && <FieldPicker categories={catalog} query={catalogQuery} onQuery={setCatalogQuery} onSelect={chooseField} onClose={() => setPickerTarget(null)} />}
           <div className="condition-list">
             {conditions.map((condition, index) => (
-              <ConditionEditor key={condition.id} index={index + 1} condition={condition} fields={fields} onOpenField={() => setPickerTarget({ conditionId: condition.id })} onUpdate={(patch) => onUpdateCondition(condition.id, patch)} onRemove={() => onRemoveCondition(condition.id)} />
+              <ConditionEditor key={condition.id} index={index + 1} condition={condition} fields={fields} onOpenField={() => setPickerTarget({ conditionId: condition.id })} onUpdate={(patch) => onUpdateCondition(condition.id, patch)} onRemove={() => onRemoveCondition(condition.id)} onRemoveRight={() => onRemoveConditionsRight(condition.id)} hasFollowing={index < conditions.length - 1} />
             ))}
           </div>
           <button className="add-condition" onClick={() => onAddCondition()}><Plus size={15} /> Add condition</button>
@@ -712,7 +752,7 @@ function Screener({ universe, timeframe, logic, conditions, groups, catalog, res
                 <div><span className="condition-index">GROUP {groupIndex + 1}</span><strong>Sub-filter</strong></div>
                 <div className="nested-group-actions"><button className={group.logic === "all" ? "logic-button active" : "logic-button"} onClick={() => onUpdateGroup(group.id, { logic: "all" })}>ALL</button><button className={group.logic === "any" ? "logic-button active" : "logic-button"} onClick={() => onUpdateGroup(group.id, { logic: "any" })}>ANY</button><button className="remove-condition" onClick={() => onRemoveGroup(group.id)}><X size={15} /></button></div>
               </div>
-              <div className="condition-list">{group.conditions.map((condition, index) => <ConditionEditor key={condition.id} index={index + 1} condition={condition} fields={fields} onOpenField={() => setPickerTarget({ conditionId: condition.id, groupId: group.id })} onUpdate={(patch) => onUpdateCondition(condition.id, patch, group.id)} onRemove={() => onRemoveCondition(condition.id, group.id)} />)}</div>
+              <div className="condition-list">{group.conditions.map((condition, index) => <ConditionEditor key={condition.id} index={index + 1} condition={condition} fields={fields} onOpenField={() => setPickerTarget({ conditionId: condition.id, groupId: group.id })} onUpdate={(patch) => onUpdateCondition(condition.id, patch, group.id)} onRemove={() => onRemoveCondition(condition.id, group.id)} onRemoveRight={() => onRemoveConditionsRight(condition.id, group.id)} hasFollowing={index < group.conditions.length - 1} />)}</div>
               <button className="add-condition compact-add" onClick={() => onAddCondition(group.id)}><Plus size={14} /> Add group condition</button>
             </div>
           ))}
@@ -729,7 +769,7 @@ function Screener({ universe, timeframe, logic, conditions, groups, catalog, res
   );
 }
 
-function ConditionEditor({ index, condition, fields, onOpenField, onUpdate, onRemove }: { index: number; condition: Condition; fields: ScreenerField[]; onOpenField: () => void; onUpdate: (patch: Partial<Condition>) => void; onRemove: () => void }) {
+function ConditionEditor({ index, condition, fields, onOpenField, onUpdate, onRemove, onRemoveRight, hasFollowing }: { index: number; condition: Condition; fields: ScreenerField[]; onOpenField: () => void; onUpdate: (patch: Partial<Condition>) => void; onRemove: () => void; onRemoveRight: () => void; hasFollowing: boolean }) {
   const definition = fields.find((item) => item.id === condition.field) || fallbackField(condition.field, condition.field, "stock_attributes");
   const numberOperators: Operator[] = [">", "<", ">=", "<=", "=", "!=", "crosses_above", "crosses_below"];
   const stringOperators: Operator[] = ["=", "!=", "contains", "not_contains", "starts_with", "ends_with"];
@@ -750,7 +790,7 @@ function ConditionEditor({ index, condition, fields, onOpenField, onUpdate, onRe
       <div className="condition-row">
         <span className="condition-index">{String(index).padStart(2, "0")}</span>
         <button className="condition-field-button" onClick={onOpenField}><span>{definition.label}</span><small>{definition.category.replaceAll("_", " ")}</small></button>
-        <select className="operator-select" value={condition.operator} onChange={(event) => onUpdate({ operator: event.currentTarget.value as Operator })}>{operators.map((operator) => <option value={operator} key={operator}>{operator.replaceAll("_", " ")}</option>)}</select>
+        <select className="operator-select" value={condition.operator} onChange={(event) => onUpdate({ operator: event.currentTarget.value as Operator })}>{operators.map((operator) => <option value={operator} key={operator}>{operatorLabels[operator]}</option>)}</select>
         <select className="compare-mode" value={condition.compare_field ? "field" : "number"} onChange={(event) => { const first = comparableFields[0]; onUpdate(event.currentTarget.value === "field" ? { compare_field: first?.id || "close", compare_parameters: defaultFieldParameters(first) } : { compare_field: undefined, compare_parameters: {} }); }}><option value="number">Number</option><option value="field">Field</option></select>
         {condition.compare_field ? <select className="compare-field" value={condition.compare_field} onChange={(event) => { const next = fields.find((item) => item.id === event.currentTarget.value); onUpdate({ compare_field: event.currentTarget.value, compare_parameters: defaultFieldParameters(next) }); }}>{comparableFields.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <input type={definition.valueType === "number" ? "number" : "text"} value={String(condition.value)} onChange={(event) => onUpdate({ value: definition.valueType === "number" ? Number(event.currentTarget.value) : event.currentTarget.value })} />}
         <select className="timeframe-select" value={condition.timeframe} onChange={(event) => onUpdate({ timeframe: event.currentTarget.value })}><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1D</option><option value="1w">1W</option><option value="1M">1M</option><option value="1Y">1Y</option></select>
@@ -760,8 +800,9 @@ function ConditionEditor({ index, condition, fields, onOpenField, onUpdate, onRe
         {definition.parameters.map((parameter) => <label className="parameter-control" key={parameter.name}><span>{parameter.label}</span>{parameter.type === "select" ? <select value={String(condition.parameters[parameter.name] ?? parameter.default)} onChange={(event) => updateParameter(parameter.name, event.currentTarget.value, parameter.type)}>{parameter.options?.map((option) => <option value={option} key={option}>{option}</option>)}</select> : parameter.type === "field" ? <select value={String(condition.parameters[parameter.name] ?? parameter.default)} onChange={(event) => updateParameter(parameter.name, event.currentTarget.value, parameter.type)}>{fields.filter((item) => item.kind === "field" && item.valueType === "number").map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <input type={parameter.type === "number" ? "number" : "text"} min={parameter.min} max={parameter.max} value={String(condition.parameters[parameter.name] ?? parameter.default)} onChange={(event) => updateParameter(parameter.name, event.currentTarget.value, parameter.type)} />}</label>)}
         {compareDefinition?.parameters.map((parameter) => <label className="parameter-control compare-parameter" key={`compare-${parameter.name}`}><span>Compare {parameter.label}</span>{parameter.type === "select" ? <select value={String(condition.compare_parameters?.[parameter.name] ?? parameter.default)} onChange={(event) => updateCompareParameter(parameter.name, event.currentTarget.value, parameter.type)}>{parameter.options?.map((option) => <option value={option} key={option}>{option}</option>)}</select> : parameter.type === "field" ? <select value={String(condition.compare_parameters?.[parameter.name] ?? parameter.default)} onChange={(event) => updateCompareParameter(parameter.name, event.currentTarget.value, parameter.type)}>{fields.filter((item) => item.kind === "field" && item.valueType === "number").map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <input type={parameter.type === "number" ? "number" : "text"} min={parameter.min} max={parameter.max} value={String(condition.compare_parameters?.[parameter.name] ?? parameter.default)} onChange={(event) => updateCompareParameter(parameter.name, event.currentTarget.value, parameter.type)} />}</label>)}
         <label className="parameter-control offset-control"><span>Bars ago</span><input type="number" min="0" max="500" value={condition.lookback} onChange={(event) => onUpdate({ lookback: Math.max(0, Number(event.currentTarget.value)) })} /></label>
-        {definition.availability !== "ready" && <span className="data-requirement">{definition.availability.replaceAll("_", " ")}</span>}
-        {compareDefinition && compareDefinition.availability !== "ready" && <span className="data-requirement">Compare: {compareDefinition.availability.replaceAll("_", " ")}</span>}
+        {definition.availability !== "ready" && <span className="data-requirement">{availabilityLabel(definition.availability)}</span>}
+        {compareDefinition && compareDefinition.availability !== "ready" && <span className="data-requirement">Compare: {availabilityLabel(compareDefinition.availability)}</span>}
+        <button className="remove-right-button" onClick={onRemoveRight} disabled={!hasFollowing} title="Keep this condition and remove every condition after it">Remove all on right</button>
       </div>
     </div>
   );
@@ -775,7 +816,7 @@ function FieldPicker({ categories, query, onQuery, onSelect, onClose }: { catego
     <div className="field-picker-scroll">{categories.map((category) => {
       const items = category.items.filter((item) => !normalizedQuery || `${item.label} ${item.id} ${category.label}`.toLowerCase().includes(normalizedQuery));
       if (items.length === 0) return null;
-      return <section className="picker-category" key={category.id}><h4>{category.label}</h4>{items.map((item) => <button className="picker-item" onClick={() => onSelect(item)} key={item.id}><span className="picker-star">☆</span><span><strong>{item.label}</strong>{item.description && <small>{item.description}</small>}</span>{item.availability !== "ready" && <em>{item.availability.includes("history") ? "History" : item.availability.includes("tick") ? "Ticks" : item.availability.includes("depth") ? "Depth" : "Metadata"}</em>}</button>)}</section>;
+      return <section className="picker-category" key={category.id}><h4>{category.label}</h4>{items.map((item) => <button className="picker-item" onClick={() => onSelect(item)} key={item.id}><span className="picker-star">☆</span><span><strong>{item.label}</strong>{item.description && <small>{item.description}</small>}</span>{item.availability !== "ready" && <em>{availabilityLabel(item.availability)}</em>}</button>)}</section>;
     })}</div>
   </div>;
 }

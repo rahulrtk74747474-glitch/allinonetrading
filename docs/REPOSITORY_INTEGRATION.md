@@ -14,6 +14,12 @@ This project uses external repositories as reference material or behind explicit
 | [OpenAlice](https://github.com/TraderAlice/OpenAlice) | Local-first workspaces, tracked entities, inbox and approval-gated Trading-as-Git workflow | Strategy registry, research queue and paper-order approval ledger | AGPL-3.0 |
 | [httpSMS](https://github.com/NdoleStudio/httpsms) | HTTP notification transport through an Android phone | Optional notification adapter only; never for TOTP, OTP, trade approval or secrets | AGPL-3.0 |
 | [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) | Local CPU text-to-speech for briefings and alerts | Optional local HTTP sidecar; keep it out of the mobile bundle and trading critical path | MIT |
+| [TA-Lib Python](https://github.com/TA-Lib/ta-lib-python) | Reference/test parity for established technical indicators | Optional backend adapter after native binaries are pinned; current pure functions avoid deployment friction | BSD-2-Clause |
+| [pandas-ta-classic](https://github.com/xgboosted/pandas-ta-classic) | Broader research indicator coverage | Optional research dependency; not required by the runtime screener | MIT |
+| [pyparsing](https://github.com/pyparsing/pyparsing) | Future text-to-rule parser | Parse into the existing JSON AST; never pass user formulas to Python `eval` | MIT |
+| [React Query Builder](https://github.com/react-querybuilder/react-querybuilder) | Query-builder interaction reference | Current web/mobile editors keep the shared JSON contract; a future web-only adapter may reuse it | MIT |
+| [OpenAlgo](https://github.com/marketcalls/openalgo) | Broker/webhook and symbol-mapping reference | Reference only unless AGPL obligations are deliberately accepted | AGPL-3.0 |
+| [ChartInkScreenerScraper](https://github.com/sgprasad66/ChartInkScreenerScraper) | Payload research only | No code copied and no production scraping dependency; repository has no declared licence | Not declared |
 
 Licences are recorded so a later public/commercial launch can receive a proper legal review. In particular, AGPL projects are not copied into the core repository in this phase.
 
@@ -34,6 +40,12 @@ Licences are recorded so a later public/commercial launch can receive a proper l
 - The web client has a Research Copilot screen.
 - The mobile client exposes the same research workflow through the shared API base URL.
 - Shared TypeScript contracts mirror the API response.
+- The shared screener catalog now contains 460 definitions, including 367
+  provider-backed financial/shareholding fields.
+- A validated SQLite-backed import boundary feeds those fields without using
+  `eval`, scraping Chartink or fabricating missing values.
+- Web, Android and iOS show friendly operator labels and support "Remove all on
+  right" within top-level and nested condition lists.
 
 The current packet is deterministic demo output. It must not be interpreted as investment advice or a live signal.
 
