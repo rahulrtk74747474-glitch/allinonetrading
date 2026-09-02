@@ -38,14 +38,52 @@ import {
 } from "lucide-react";
 
 type View = "overview" | "screener" | "rrg" | "backtest" | "options" | "arbitrage" | "research" | "settings";
-type Operator = ">" | "<" | ">=" | "<=" | "=";
+type Logic = "all" | "any";
+type Operator = ">" | "<" | ">=" | "<=" | "=" | "!=" | "contains" | "not_contains" | "starts_with" | "ends_with" | "crosses_above" | "crosses_below";
+
+type FieldParameter = {
+  name: string;
+  label: string;
+  type: "number" | "text" | "select" | "field";
+  default: number | string;
+  min?: number;
+  max?: number;
+  options?: string[];
+};
+
+type ScreenerField = {
+  id: string;
+  label: string;
+  category: string;
+  kind: "field" | "function" | "indicator" | "measure" | "group";
+  valueType: "number" | "string" | "group";
+  description: string;
+  availability: "ready" | "metadata_required" | "tick_feed_required" | "depth_feed_required" | "depth_history_required";
+  parameters: FieldParameter[];
+};
+
+type ScreenerCategory = {
+  id: string;
+  label: string;
+  items: ScreenerField[];
+};
 
 type Condition = {
   id: string;
   field: string;
   operator: Operator;
-  value: number;
+  value: number | string;
   timeframe: string;
+  lookback: number;
+  parameters: Record<string, number | string | boolean>;
+  compare_field?: string;
+  compare_parameters?: Record<string, number | string | boolean>;
+};
+
+type FilterGroup = {
+  id: string;
+  logic: Logic;
+  conditions: Condition[];
 };
 
 type Quote = {
@@ -88,6 +126,34 @@ type ResearchReport = {
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+function fallbackField(id: string, label: string, category: string, availability: ScreenerField["availability"] = "ready"): ScreenerField {
+  return { id, label, category, kind: "field", valueType: ["symbol", "industry", "sector", "marketcapname"].includes(id) ? "string" : "number", description: "", availability, parameters: [] };
+}
+
+function defaultFieldParameters(definition: ScreenerField | undefined): Record<string, number | string | boolean> {
+  return Object.fromEntries((definition?.parameters || []).map((parameter) => [parameter.name, parameter.default]));
+}
+
+const fallbackCategories: ScreenerCategory[] = [
+  { id: "measures", label: "Measures", items: [
+    { ...fallbackField("sub_filter", "Sub-Filter / Group", "measures"), kind: "group", valueType: "group" },
+    { ...fallbackField("number", "Number", "measures"), kind: "measure" },
+  ] },
+  { id: "stock_attributes", label: "Stock attributes", items: [
+    ["symbol", "Symbol"], ["industry", "Industry"], ["sector", "Sector"], ["marketcapname", "Marketcap name"], ["open", "Open"], ["high", "High"], ["low", "Low"], ["close", "Close"], ["volume", "Volume"], ["change_pct", "% Change"], ["vwap", "VWAP"], ["ha_open", "HA-Open (Heikin-Ashi)"], ["ha_high", "HA-High (Heikin-Ashi)"], ["ha_low", "HA-Low (Heikin-Ashi)"], ["ha_close", "HA-Close (Heikin-Ashi)"], ["fno_lot_size", "FnO lot size"], ["hl2", "HL2"], ["hlc3", "HLC3"], ["ohlc4", "OHLC4"],
+  ].map(([id, label]) => fallbackField(id, label, "stock_attributes")) },
+  { id: "trade_book", label: "Trade Book fields", items: [
+    ["buyer_initiated_trades", "Buyer initiated trades"], ["buyer_initiated_trades_quantity", "Buyer initiated trades quantity"], ["buyer_initiated_trades_avg_quantity", "Buyer initiated trades average quantity"], ["seller_initiated_trades", "Seller initiated trades"], ["seller_initiated_trades_quantity", "Seller initiated trades quantity"], ["seller_initiated_trades_avg_quantity", "Seller initiated trades average quantity"], ["buyer_seller_trades_ratio", "Buyer vs Seller initiated trades ratio"], ["buyer_seller_trade_quantity_ratio", "Buyer vs Seller initiated trades quantity ratio"], ["buyer_initiated_vwap", "Buyer initiated trades VWAP"], ["seller_initiated_vwap", "Seller initiated trades VWAP"],
+  ].map(([id, label]) => fallbackField(id, label, "trade_book", "tick_feed_required")) },
+  { id: "order_book", label: "Order Book fields", items: [
+    ["orders", "Orders"], ["orders_quantity", "Orders Quantity"], ["buy_orders", "Buy Orders"], ["buy_orders_quantity", "Buy Orders Quantity"], ["sell_orders", "Sell Orders"], ["sell_orders_quantity", "Sell Orders Quantity"], ["buy_sell_orders_ratio", "Buy vs Sell orders ratio"], ["buy_sell_order_quantity_ratio", "Buy vs Sell orders quantity ratio"], ["cancelled_buy_orders", "Cancelled Buy Orders"], ["cancelled_buy_orders_quantity", "Cancelled Buy Orders Quantity"], ["cancelled_sell_orders", "Cancelled Sell Orders"], ["cancelled_sell_orders_quantity", "Cancelled Sell Orders Quantity"], ["total_cancelled_orders", "Total Cancelled orders"], ["total_cancelled_orders_quantity", "Total Cancelled orders quantity"], ["cancelled_orders_ratio", "Cancelled orders ratio"], ["cancelled_order_quantity_ratio", "Cancelled orders quantity ratio"], ["buy_orders_vwap", "Buy Orders VWAP"], ["sell_orders_vwap", "Sell Orders VWAP"], ["orders_vwap", "Orders VWAP"],
+  ].map(([id, label]) => fallbackField(id, label, "order_book", id.startsWith("cancelled") || id.startsWith("total_cancelled") ? "depth_history_required" : "depth_feed_required")) },
+  { id: "group_functions", label: "Group Functions", items: [["group_count", "GroupCount (total rows in a group)"], ["group_low", "GroupLow (min of the group)"], ["group_high", "GroupHigh (max of the group)"], ["group_avg", "GroupAvg (avg of the group)"], ["group_sum", "GroupSum (sum of the group)"]].map(([id, label]) => ({ ...fallbackField(id, label, "group_functions"), kind: "function" as const })) },
+  { id: "math_functions", label: "Math Functions", items: [["bracket", "Bracket (value)"], ["min", "Min (duration, value)"], ["max", "Max (duration, value)"], ["greatest", "Greatest (fields..)"], ["least", "Least (fields..)"], ["count", "Count (duration, filter)"], ["countstreak", "Countstreak (duration, filter)"], ["abs", "Abs (value)"], ["ceil", "Ceil (value)"], ["floor", "Floor (value)"], ["round", "Round (value)"], ["square", "Square (value)"], ["sqrt", "Square root (value)"], ["log", "Log (value)"], ["log10", "Log10 (value)"]].map(([id, label]) => ({ ...fallbackField(id, label, "math_functions"), kind: "function" as const })) },
+  { id: "pivots", label: "Pivots", items: [["pivot_point", "Pivot point"], ["pivot_r1", "Pivot point R1"], ["pivot_r2", "Pivot point R2"], ["pivot_r3", "Pivot point R3"], ["pivot_s1", "Pivot point S1"], ["pivot_s2", "Pivot point S2"], ["pivot_s3", "Pivot point S3"]].map(([id, label]) => fallbackField(id, label, "pivots")) },
+  { id: "indicators", label: "Indicators", items: [["rsi", "RSI"], ["sma", "SMA (Simple)"], ["ema", "EMA (Exponential)"], ["wma", "WMA (Weighted)"], ["tma", "TMA (Triangular)"], ["rma", "RMA (Rolling Moving Average)"], ["tema", "TEMA (Triple EMA)"], ["hma", "HMA (Hull moving average)"], ["vwma", "VWMA (Volume-weighted avg)"], ["std", "Std (Standard Deviation)"], ["sum", "Sum (total for the given period)"], ["parabolic_sar", "Parabolic SAR"], ["bollinger_upper", "Upper Bollinger band"], ["bollinger_middle", "Middle Bollinger band"], ["bollinger_lower", "Lower Bollinger band"], ["score", "Momentum score"]].map(([id, label]) => ({ ...fallbackField(id, label, "indicators"), kind: "indicator" as const })) },
+];
+
 const navItems: Array<{ id: View; label: string; icon: LucideIcon }> = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "screener", label: "Screener", icon: ListFilter },
@@ -119,9 +185,9 @@ const demoRrg: RrgPoint[] = [
 ];
 
 const defaultConditions: Condition[] = [
-  { id: "rsi", field: "rsi", operator: ">", value: 50, timeframe: "1d" },
-  { id: "change", field: "changePct", operator: ">", value: 0, timeframe: "1d" },
-  { id: "volume", field: "volume", operator: ">", value: 1000000, timeframe: "1d" },
+  { id: "rsi", field: "rsi", operator: ">", value: 50, timeframe: "1d", lookback: 0, parameters: { period: 14 } },
+  { id: "change", field: "change_pct", operator: ">", value: 0, timeframe: "1d", lookback: 0, parameters: {} },
+  { id: "volume", field: "volume", operator: ">", value: 1000000, timeframe: "1d", lookback: 0, parameters: {} },
 ];
 
 const optionRows = [
@@ -154,8 +220,12 @@ function App() {
   const [mobileNav, setMobileNav] = useState(false);
   const [universe, setUniverse] = useState("nifty50");
   const [timeframe, setTimeframe] = useState("1d");
+  const [logic, setLogic] = useState<Logic>("all");
   const [conditions, setConditions] = useState<Condition[]>(defaultConditions);
+  const [groups, setGroups] = useState<FilterGroup[]>([]);
+  const [catalog, setCatalog] = useState<ScreenerCategory[]>(fallbackCategories);
   const [scanResults, setScanResults] = useState<Quote[]>(demoQuotes);
+  const [scanWarnings, setScanWarnings] = useState<string[]>([]);
   const [apiMode, setApiMode] = useState("Demo data");
   const [notice, setNotice] = useState("Paper mode is active. Connect a rotated SmartAPI key in the backend to load your own market data.");
 
@@ -166,23 +236,54 @@ function App() {
         if (data.appMode === "connected") setApiMode("SmartAPI connected");
       })
       .catch(() => setApiMode("Demo data"));
+
+    fetch(API_URL + "/api/v1/screener/catalog")
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Catalog unavailable"))))
+      .then((data) => {
+        if (Array.isArray(data.categories) && data.categories.length > 0) setCatalog(data.categories);
+      })
+      .catch(() => setCatalog(fallbackCategories));
   }, []);
 
-  function updateCondition(id: string, patch: Partial<Condition>) {
-    setConditions((current) => current.map((condition) => (
-      condition.id === id ? { ...condition, ...patch } : condition
-    )));
+  function newCondition(): Condition {
+    return { id: "condition-" + String(Date.now()) + "-" + Math.random().toString(16).slice(2), field: "close", operator: ">", value: 0, timeframe, lookback: 0, parameters: {} };
   }
 
-  function addCondition() {
-    setConditions((current) => [
-      ...current,
-      { id: "condition-" + String(Date.now()), field: "changePct", operator: ">", value: 0, timeframe },
-    ]);
+  function updateCondition(id: string, patch: Partial<Condition>, groupId?: string) {
+    if (groupId) {
+      setGroups((current) => current.map((group) => group.id === groupId ? {
+        ...group,
+        conditions: group.conditions.map((condition) => condition.id === id ? { ...condition, ...patch } : condition),
+      } : group));
+      return;
+    }
+    setConditions((current) => current.map((condition) => condition.id === id ? { ...condition, ...patch } : condition));
   }
 
-  function removeCondition(id: string) {
+  function addCondition(groupId?: string) {
+    const condition = newCondition();
+    if (groupId) {
+      setGroups((current) => current.map((group) => group.id === groupId ? { ...group, conditions: [...group.conditions, condition] } : group));
+      return;
+    }
+    setConditions((current) => [...current, condition]);
+  }
+
+  function removeCondition(id: string, groupId?: string) {
+    if (groupId) {
+      setGroups((current) => current.map((group) => group.id === groupId ? { ...group, conditions: group.conditions.filter((condition) => condition.id !== id) } : group));
+      return;
+    }
     setConditions((current) => current.filter((condition) => condition.id !== id));
+  }
+
+  function addGroup() {
+    const id = "group-" + String(Date.now());
+    setGroups((current) => [...current, { id, logic: "all", conditions: [newCondition()] }]);
+  }
+
+  function updateGroup(id: string, patch: Partial<FilterGroup>) {
+    setGroups((current) => current.map((group) => group.id === id ? { ...group, ...patch } : group));
   }
 
   async function runScan() {
@@ -191,16 +292,18 @@ function App() {
       const response = await fetch(API_URL + "/api/v1/screener/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ universe, timeframe, conditions, limit: 50 }),
+        body: JSON.stringify({ universe, timeframe, logic, conditions, groups, limit: 50 }),
       });
       if (!response.ok) throw new Error("API unavailable");
       const data = await response.json();
       setScanResults(data.results || demoQuotes);
+      setScanWarnings(Array.isArray(data.fieldWarnings) ? data.fieldWarnings : []);
       setApiMode(data.mode === "connected" ? "SmartAPI connected" : "Demo data");
       setNotice(data.warning || "Scan completed.");
       setView("screener");
     } catch {
       setScanResults(demoQuotes);
+      setScanWarnings([]);
       setNotice("The API is not running, so the interface is showing safe demo results.");
       setView("screener");
     }
@@ -305,13 +408,21 @@ function App() {
             <Screener
               universe={universe}
               timeframe={timeframe}
+              logic={logic}
               conditions={conditions}
+              groups={groups}
+              catalog={catalog}
               results={scanResults}
+              warnings={scanWarnings}
               onUniverse={setUniverse}
               onTimeframe={setTimeframe}
+              onLogic={setLogic}
               onUpdateCondition={updateCondition}
               onAddCondition={addCondition}
               onRemoveCondition={removeCondition}
+              onAddGroup={addGroup}
+              onUpdateGroup={updateGroup}
+              onRemoveGroup={(id) => setGroups((current) => current.filter((group) => group.id !== id))}
               onRunScan={runScan}
             />
           )}
@@ -523,18 +634,57 @@ function ResearchView() {
   );
 }
 
-function Screener({ universe, timeframe, conditions, results, onUniverse, onTimeframe, onUpdateCondition, onAddCondition, onRemoveCondition, onRunScan }: {
+function Screener({ universe, timeframe, logic, conditions, groups, catalog, results, warnings, onUniverse, onTimeframe, onLogic, onUpdateCondition, onAddCondition, onRemoveCondition, onAddGroup, onUpdateGroup, onRemoveGroup, onRunScan }: {
   universe: string;
   timeframe: string;
+  logic: Logic;
   conditions: Condition[];
+  groups: FilterGroup[];
+  catalog: ScreenerCategory[];
   results: Quote[];
+  warnings: string[];
   onUniverse: (value: string) => void;
   onTimeframe: (value: string) => void;
-  onUpdateCondition: (id: string, patch: Partial<Condition>) => void;
-  onAddCondition: () => void;
-  onRemoveCondition: (id: string) => void;
+  onLogic: (value: Logic) => void;
+  onUpdateCondition: (id: string, patch: Partial<Condition>, groupId?: string) => void;
+  onAddCondition: (groupId?: string) => void;
+  onRemoveCondition: (id: string, groupId?: string) => void;
+  onAddGroup: () => void;
+  onUpdateGroup: (id: string, patch: Partial<FilterGroup>) => void;
+  onRemoveGroup: (id: string) => void;
   onRunScan: () => void;
 }) {
+  const [pickerTarget, setPickerTarget] = useState<{ conditionId: string; groupId?: string } | null>(null);
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [resultQuery, setResultQuery] = useState("");
+  const fields = catalog.flatMap((category) => category.items);
+  const visibleResults = results.filter((quote) => quote.symbol.toLowerCase().includes(resultQuery.toLowerCase()) || quote.sector.toLowerCase().includes(resultQuery.toLowerCase()));
+
+  function chooseField(definition: ScreenerField) {
+    if (definition.kind === "group") {
+      onAddGroup();
+      setPickerTarget(null);
+      return;
+    }
+    if (definition.kind === "measure") {
+      if (pickerTarget) onUpdateCondition(pickerTarget.conditionId, { compare_field: undefined, compare_parameters: {} }, pickerTarget.groupId);
+      setPickerTarget(null);
+      return;
+    }
+    if (!pickerTarget) return;
+    const parameters = defaultFieldParameters(definition);
+    onUpdateCondition(pickerTarget.conditionId, {
+      field: definition.id,
+      parameters,
+      operator: definition.valueType === "string" ? "=" : ">",
+      value: definition.valueType === "string" ? "" : 0,
+      compare_field: undefined,
+      compare_parameters: {},
+    }, pickerTarget.groupId);
+    setPickerTarget(null);
+    setCatalogQuery("");
+  }
+
   return (
     <>
       <div className="page-heading compact-heading">
@@ -548,30 +698,86 @@ function Screener({ universe, timeframe, conditions, results, onUniverse, onTime
             <label>Universe<select value={universe} onChange={(event) => onUniverse(event.currentTarget.value)}><option value="nifty50">NIFTY 50</option><option value="banknifty">BANKNIFTY</option><option value="midcap150">MIDCAP 150</option><option value="custom">Custom list</option><option value="crypto">Crypto research</option></select></label>
             <label>Base timeframe<select value={timeframe} onChange={(event) => onTimeframe(event.currentTarget.value)}><option value="5m">5 minute</option><option value="15m">15 minute</option><option value="1h">1 hour</option><option value="1d">Daily</option><option value="1w">Weekly</option><option value="1M">Monthly</option></select></label>
           </div>
-          <div className="logic-row"><span className="logic-label">Match</span><button className="logic-button active">ALL</button><button className="logic-button">ANY</button><span className="muted">conditions</span></div>
+          <div className="logic-row"><span className="logic-label">Match</span><button className={logic === "all" ? "logic-button active" : "logic-button"} onClick={() => onLogic("all")}>ALL</button><button className={logic === "any" ? "logic-button active" : "logic-button"} onClick={() => onLogic("any")}>ANY</button><span className="muted">conditions and groups</span></div>
+          {pickerTarget && <FieldPicker categories={catalog} query={catalogQuery} onQuery={setCatalogQuery} onSelect={chooseField} onClose={() => setPickerTarget(null)} />}
           <div className="condition-list">
             {conditions.map((condition, index) => (
-              <div className="condition-row" key={condition.id}>
-                <span className="condition-index">{String(index + 1).padStart(2, "0")}</span>
-                <select value={condition.field} onChange={(event) => onUpdateCondition(condition.id, { field: event.currentTarget.value })}><option value="rsi">RSI (14)</option><option value="changePct">Change %</option><option value="volume">Volume</option><option value="ltp">Last price</option><option value="score">Momentum score</option></select>
-                <select className="operator-select" value={condition.operator} onChange={(event) => onUpdateCondition(condition.id, { operator: event.currentTarget.value as Operator })}><option value=">">&gt;</option><option value="<">&lt;</option><option value=">=">&gt;=</option><option value="<=">&lt;=</option><option value="=">=</option></select>
-                <input type="number" value={condition.value} onChange={(event) => onUpdateCondition(condition.id, { value: Number(event.currentTarget.value) })} />
-                <select className="timeframe-select" value={condition.timeframe} onChange={(event) => onUpdateCondition(condition.id, { timeframe: event.currentTarget.value })}><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="1d">1D</option><option value="1w">1W</option><option value="1M">1M</option></select>
-                <button className="remove-condition" onClick={() => onRemoveCondition(condition.id)}><X size={15} /></button>
-              </div>
+              <ConditionEditor key={condition.id} index={index + 1} condition={condition} fields={fields} onOpenField={() => setPickerTarget({ conditionId: condition.id })} onUpdate={(patch) => onUpdateCondition(condition.id, patch)} onRemove={() => onRemoveCondition(condition.id)} />
             ))}
           </div>
-          <button className="add-condition" onClick={onAddCondition}><Plus size={15} /> Add condition</button>
-          <div className="advanced-row"><button className="text-button"><SlidersHorizontal size={14} /> Add nested group</button><span className="muted">Previous-bar offsets and custom formulas are next</span></div>
+          <button className="add-condition" onClick={() => onAddCondition()}><Plus size={15} /> Add condition</button>
+          {groups.map((group, groupIndex) => (
+            <div className="nested-group" key={group.id}>
+              <div className="nested-group-header">
+                <div><span className="condition-index">GROUP {groupIndex + 1}</span><strong>Sub-filter</strong></div>
+                <div className="nested-group-actions"><button className={group.logic === "all" ? "logic-button active" : "logic-button"} onClick={() => onUpdateGroup(group.id, { logic: "all" })}>ALL</button><button className={group.logic === "any" ? "logic-button active" : "logic-button"} onClick={() => onUpdateGroup(group.id, { logic: "any" })}>ANY</button><button className="remove-condition" onClick={() => onRemoveGroup(group.id)}><X size={15} /></button></div>
+              </div>
+              <div className="condition-list">{group.conditions.map((condition, index) => <ConditionEditor key={condition.id} index={index + 1} condition={condition} fields={fields} onOpenField={() => setPickerTarget({ conditionId: condition.id, groupId: group.id })} onUpdate={(patch) => onUpdateCondition(condition.id, patch, group.id)} onRemove={() => onRemoveCondition(condition.id, group.id)} />)}</div>
+              <button className="add-condition compact-add" onClick={() => onAddCondition(group.id)}><Plus size={14} /> Add group condition</button>
+            </div>
+          ))}
+          <div className="advanced-row"><button className="text-button" onClick={onAddGroup}><SlidersHorizontal size={14} /> Add nested group</button><span className="muted">Offsets, functions and field comparisons are active</span></div>
+          {warnings.length > 0 && <div className="field-warning-list">{warnings.map((warning) => <div key={warning}><ShieldCheck size={14} /><span>{warning}</span></div>)}</div>}
         </div>
         <div className="panel scan-preview">
           <div className="panel-header"><div><span className="panel-kicker">SIGNAL PREVIEW</span><h3>Scan output</h3></div><span className="result-count">{results.length} matches</span></div>
-          <div className="result-toolbar"><div className="search-box"><Search size={15} /><input placeholder="Filter results..." /></div><button className="icon-button"><MoreHorizontal size={17} /></button></div>
-          <div className="table-scroll"><table><thead><tr><th>Symbol</th><th>Signal</th><th>LTP</th><th>Change</th><th>Volume</th><th>Score</th></tr></thead><tbody>{results.map((quote) => <tr key={quote.symbol}><td><div className="table-symbol"><span className="symbol-chip">{quote.symbol.slice(0, 2)}</span><div><strong>{quote.symbol}</strong><small>{quote.sector}</small></div></div></td><td><span className={quote.signal === "Momentum" ? "status-badge green-badge" : "status-badge purple-badge"}>{quote.signal}</span></td><td>{formatCurrency(quote.ltp)}</td><td className={quote.changePct >= 0 ? "positive-text" : "negative-text"}>{quote.changePct >= 0 ? "+" : ""}{quote.changePct.toFixed(2)}%</td><td>{formatCompact(quote.volume)}</td><td><div className="score-cell"><span className="score-bar"><i style={{ width: quote.score + "%" }} /></span><strong>{quote.score}</strong></div></td></tr>)}</tbody></table></div>
+          <div className="result-toolbar"><div className="search-box"><Search size={15} /><input placeholder="Filter results..." value={resultQuery} onChange={(event) => setResultQuery(event.currentTarget.value)} /></div><button className="icon-button"><MoreHorizontal size={17} /></button></div>
+          <div className="table-scroll"><table><thead><tr><th>Symbol</th><th>Signal</th><th>LTP</th><th>Change</th><th>Volume</th><th>Score</th></tr></thead><tbody>{visibleResults.map((quote) => <tr key={quote.symbol}><td><div className="table-symbol"><span className="symbol-chip">{quote.symbol.slice(0, 2)}</span><div><strong>{quote.symbol}</strong><small>{quote.sector}</small></div></div></td><td><span className={quote.signal === "Momentum" ? "status-badge green-badge" : "status-badge purple-badge"}>{quote.signal}</span></td><td>{formatCurrency(quote.ltp)}</td><td className={quote.changePct >= 0 ? "positive-text" : "negative-text"}>{quote.changePct >= 0 ? "+" : ""}{quote.changePct.toFixed(2)}%</td><td>{formatCompact(quote.volume)}</td><td><div className="score-cell"><span className="score-bar"><i style={{ width: quote.score + "%" }} /></span><strong>{quote.score}</strong></div></td></tr>)}</tbody></table></div>
         </div>
       </div>
     </>
   );
+}
+
+function ConditionEditor({ index, condition, fields, onOpenField, onUpdate, onRemove }: { index: number; condition: Condition; fields: ScreenerField[]; onOpenField: () => void; onUpdate: (patch: Partial<Condition>) => void; onRemove: () => void }) {
+  const definition = fields.find((item) => item.id === condition.field) || fallbackField(condition.field, condition.field, "stock_attributes");
+  const numberOperators: Operator[] = [">", "<", ">=", "<=", "=", "!=", "crosses_above", "crosses_below"];
+  const stringOperators: Operator[] = ["=", "!=", "contains", "not_contains", "starts_with", "ends_with"];
+  const operators = definition.valueType === "string" ? stringOperators : numberOperators;
+  const comparableFields = fields.filter((item) => item.kind !== "measure" && item.kind !== "group" && item.valueType === definition.valueType);
+  const compareDefinition = fields.find((item) => item.id === condition.compare_field);
+
+  function updateParameter(name: string, value: string, type: FieldParameter["type"]) {
+    onUpdate({ parameters: { ...condition.parameters, [name]: type === "number" ? Number(value) : value } });
+  }
+
+  function updateCompareParameter(name: string, value: string, type: FieldParameter["type"]) {
+    onUpdate({ compare_parameters: { ...(condition.compare_parameters || {}), [name]: type === "number" ? Number(value) : value } });
+  }
+
+  return (
+    <div className="condition-card">
+      <div className="condition-row">
+        <span className="condition-index">{String(index).padStart(2, "0")}</span>
+        <button className="condition-field-button" onClick={onOpenField}><span>{definition.label}</span><small>{definition.category.replaceAll("_", " ")}</small></button>
+        <select className="operator-select" value={condition.operator} onChange={(event) => onUpdate({ operator: event.currentTarget.value as Operator })}>{operators.map((operator) => <option value={operator} key={operator}>{operator.replaceAll("_", " ")}</option>)}</select>
+        <select className="compare-mode" value={condition.compare_field ? "field" : "number"} onChange={(event) => { const first = comparableFields[0]; onUpdate(event.currentTarget.value === "field" ? { compare_field: first?.id || "close", compare_parameters: defaultFieldParameters(first) } : { compare_field: undefined, compare_parameters: {} }); }}><option value="number">Number</option><option value="field">Field</option></select>
+        {condition.compare_field ? <select className="compare-field" value={condition.compare_field} onChange={(event) => { const next = fields.find((item) => item.id === event.currentTarget.value); onUpdate({ compare_field: event.currentTarget.value, compare_parameters: defaultFieldParameters(next) }); }}>{comparableFields.map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <input type={definition.valueType === "number" ? "number" : "text"} value={String(condition.value)} onChange={(event) => onUpdate({ value: definition.valueType === "number" ? Number(event.currentTarget.value) : event.currentTarget.value })} />}
+        <select className="timeframe-select" value={condition.timeframe} onChange={(event) => onUpdate({ timeframe: event.currentTarget.value })}><option value="5m">5m</option><option value="15m">15m</option><option value="1h">1h</option><option value="4h">4h</option><option value="1d">1D</option><option value="1w">1W</option><option value="1M">1M</option><option value="1Y">1Y</option></select>
+        <button className="remove-condition" onClick={onRemove}><X size={15} /></button>
+      </div>
+      <div className="condition-detail-row">
+        {definition.parameters.map((parameter) => <label className="parameter-control" key={parameter.name}><span>{parameter.label}</span>{parameter.type === "select" ? <select value={String(condition.parameters[parameter.name] ?? parameter.default)} onChange={(event) => updateParameter(parameter.name, event.currentTarget.value, parameter.type)}>{parameter.options?.map((option) => <option value={option} key={option}>{option}</option>)}</select> : parameter.type === "field" ? <select value={String(condition.parameters[parameter.name] ?? parameter.default)} onChange={(event) => updateParameter(parameter.name, event.currentTarget.value, parameter.type)}>{fields.filter((item) => item.kind === "field" && item.valueType === "number").map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <input type={parameter.type === "number" ? "number" : "text"} min={parameter.min} max={parameter.max} value={String(condition.parameters[parameter.name] ?? parameter.default)} onChange={(event) => updateParameter(parameter.name, event.currentTarget.value, parameter.type)} />}</label>)}
+        {compareDefinition?.parameters.map((parameter) => <label className="parameter-control compare-parameter" key={`compare-${parameter.name}`}><span>Compare {parameter.label}</span>{parameter.type === "select" ? <select value={String(condition.compare_parameters?.[parameter.name] ?? parameter.default)} onChange={(event) => updateCompareParameter(parameter.name, event.currentTarget.value, parameter.type)}>{parameter.options?.map((option) => <option value={option} key={option}>{option}</option>)}</select> : parameter.type === "field" ? <select value={String(condition.compare_parameters?.[parameter.name] ?? parameter.default)} onChange={(event) => updateCompareParameter(parameter.name, event.currentTarget.value, parameter.type)}>{fields.filter((item) => item.kind === "field" && item.valueType === "number").map((item) => <option value={item.id} key={item.id}>{item.label}</option>)}</select> : <input type={parameter.type === "number" ? "number" : "text"} min={parameter.min} max={parameter.max} value={String(condition.compare_parameters?.[parameter.name] ?? parameter.default)} onChange={(event) => updateCompareParameter(parameter.name, event.currentTarget.value, parameter.type)} />}</label>)}
+        <label className="parameter-control offset-control"><span>Bars ago</span><input type="number" min="0" max="500" value={condition.lookback} onChange={(event) => onUpdate({ lookback: Math.max(0, Number(event.currentTarget.value)) })} /></label>
+        {definition.availability !== "ready" && <span className="data-requirement">{definition.availability.replaceAll("_", " ")}</span>}
+        {compareDefinition && compareDefinition.availability !== "ready" && <span className="data-requirement">Compare: {compareDefinition.availability.replaceAll("_", " ")}</span>}
+      </div>
+    </div>
+  );
+}
+
+function FieldPicker({ categories, query, onQuery, onSelect, onClose }: { categories: ScreenerCategory[]; query: string; onQuery: (value: string) => void; onSelect: (field: ScreenerField) => void; onClose: () => void }) {
+  const normalizedQuery = query.trim().toLowerCase();
+  return <div className="field-picker">
+    <div className="field-picker-search"><Search size={15} /><input autoFocus placeholder="Select an indicator / formula" value={query} onChange={(event) => onQuery(event.currentTarget.value)} /><button onClick={onClose}><X size={15} /></button></div>
+    <div className="field-picker-tabs"><span className="active">Browse fields</span><span>{categories.reduce((count, category) => count + category.items.length, 0)} options</span></div>
+    <div className="field-picker-scroll">{categories.map((category) => {
+      const items = category.items.filter((item) => !normalizedQuery || `${item.label} ${item.id} ${category.label}`.toLowerCase().includes(normalizedQuery));
+      if (items.length === 0) return null;
+      return <section className="picker-category" key={category.id}><h4>{category.label}</h4>{items.map((item) => <button className="picker-item" onClick={() => onSelect(item)} key={item.id}><span className="picker-star">☆</span><span><strong>{item.label}</strong>{item.description && <small>{item.description}</small>}</span>{item.availability !== "ready" && <em>{item.availability.includes("history") ? "History" : item.availability.includes("tick") ? "Ticks" : item.availability.includes("depth") ? "Depth" : "Metadata"}</em>}</button>)}</section>;
+    })}</div>
+  </div>;
 }
 
 function RrgView({ timeframe, onTimeframe }: { timeframe: string; onTimeframe: (value: string) => void }) {

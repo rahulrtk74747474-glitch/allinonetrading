@@ -13,6 +13,7 @@ __pycache__/
 venv/
 .pytest_cache/
 .mypy_cache/
+*.egg-info/
 
 # Node
 node_modules/
@@ -20,6 +21,7 @@ dist/
 build/
 .expo/
 .next/
+*.tsbuildinfo
 
 # Local data and logs
 *.log

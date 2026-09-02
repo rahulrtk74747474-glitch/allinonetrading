@@ -14,6 +14,7 @@ load_dotenv()
 from .brokers.angel_one import AngelOneAdapter
 from .research.models import ResearchRequest
 from .research.service import build_research_report
+from .screener import catalog_response, request_field_warnings, scan_rows
 
 
 def cors_origins() -> list[str]:
@@ -40,22 +41,47 @@ app.add_middleware(
 
 
 Timeframe = Literal["5m", "15m", "1h", "4h", "1d", "1w", "1M", "1Y"]
-Operator = Literal[">", "<", ">=", "<=", "=", "crosses_above", "crosses_below"]
+Operator = Literal[
+    ">",
+    "<",
+    ">=",
+    "<=",
+    "=",
+    "!=",
+    "contains",
+    "not_contains",
+    "starts_with",
+    "ends_with",
+    "crosses_above",
+    "crosses_below",
+]
+Logic = Literal["all", "any"]
 
 
 class Condition(BaseModel):
     id: str
     field: str
     operator: Operator
-    value: float | str
+    value: float | str = 0
     lookback: int = Field(default=0, ge=0)
     timeframe: Timeframe = "1d"
+    parameters: dict[str, float | str | bool] = Field(default_factory=dict)
+    compare_field: str | None = None
+    compare_parameters: dict[str, float | str | bool] = Field(default_factory=dict)
+
+
+class FilterGroup(BaseModel):
+    id: str
+    logic: Logic = "all"
+    conditions: list[Condition] = Field(default_factory=list)
 
 
 class ScanRequest(BaseModel):
     universe: str = "nifty50"
     timeframe: Timeframe = "1d"
+    logic: Logic = "all"
     conditions: list[Condition] = Field(default_factory=list)
+    groups: list[FilterGroup] = Field(default_factory=list)
     limit: int = Field(default=50, ge=1, le=500)
 
 
@@ -90,14 +116,14 @@ class CandleRequest(BaseModel):
 
 
 SAMPLE_QUOTES = [
-    {"symbol": "RELIANCE", "exchange": "NSE", "sector": "Energy", "ltp": 2942.40, "change_pct": 1.84, "volume": 8420000, "rsi": 64.2, "score": 86},
-    {"symbol": "ICICIBANK", "exchange": "NSE", "sector": "Banks", "ltp": 1328.65, "change_pct": 1.25, "volume": 6110000, "rsi": 61.7, "score": 82},
-    {"symbol": "BHARTIARTL", "exchange": "NSE", "sector": "Telecom", "ltp": 1845.10, "change_pct": 0.94, "volume": 4340000, "rsi": 58.3, "score": 78},
-    {"symbol": "TCS", "exchange": "NSE", "sector": "IT", "ltp": 4120.75, "change_pct": -0.22, "volume": 2120000, "rsi": 49.6, "score": 57},
-    {"symbol": "HDFCBANK", "exchange": "NSE", "sector": "Banks", "ltp": 1764.20, "change_pct": 0.41, "volume": 5880000, "rsi": 55.1, "score": 71},
-    {"symbol": "SUNPHARMA", "exchange": "NSE", "sector": "Pharma", "ltp": 1742.30, "change_pct": 2.32, "volume": 3020000, "rsi": 68.5, "score": 89},
-    {"symbol": "INFY", "exchange": "NSE", "sector": "IT", "ltp": 1936.55, "change_pct": -0.74, "volume": 3510000, "rsi": 44.9, "score": 46},
-    {"symbol": "AXISBANK", "exchange": "NSE", "sector": "Banks", "ltp": 1215.80, "change_pct": 0.86, "volume": 4790000, "rsi": 59.8, "score": 76},
+    {"symbol": "RELIANCE", "exchange": "NSE", "industry": "Refineries", "sector": "Energy", "marketcapname": "Large Cap", "open": 2894.0, "high": 2961.8, "low": 2882.3, "close": 2942.40, "ltp": 2942.40, "vwap": 2927.6, "change_pct": 1.84, "volume": 8420000, "rsi": 64.2, "score": 86, "fno_lot_size": 250},
+    {"symbol": "ICICIBANK", "exchange": "NSE", "industry": "Private Sector Bank", "sector": "Banks", "marketcapname": "Large Cap", "open": 1309.4, "high": 1335.2, "low": 1305.1, "close": 1328.65, "ltp": 1328.65, "vwap": 1322.4, "change_pct": 1.25, "volume": 6110000, "rsi": 61.7, "score": 82, "fno_lot_size": 700},
+    {"symbol": "BHARTIARTL", "exchange": "NSE", "industry": "Telecom Services", "sector": "Telecom", "marketcapname": "Large Cap", "open": 1826.0, "high": 1852.7, "low": 1818.9, "close": 1845.10, "ltp": 1845.10, "vwap": 1838.2, "change_pct": 0.94, "volume": 4340000, "rsi": 58.3, "score": 78, "fno_lot_size": 475},
+    {"symbol": "TCS", "exchange": "NSE", "industry": "IT Services", "sector": "IT", "marketcapname": "Large Cap", "open": 4135.4, "high": 4152.0, "low": 4098.4, "close": 4120.75, "ltp": 4120.75, "vwap": 4124.8, "change_pct": -0.22, "volume": 2120000, "rsi": 49.6, "score": 57, "fno_lot_size": 175},
+    {"symbol": "HDFCBANK", "exchange": "NSE", "industry": "Private Sector Bank", "sector": "Banks", "marketcapname": "Large Cap", "open": 1753.0, "high": 1772.8, "low": 1746.5, "close": 1764.20, "ltp": 1764.20, "vwap": 1761.3, "change_pct": 0.41, "volume": 5880000, "rsi": 55.1, "score": 71, "fno_lot_size": 550},
+    {"symbol": "SUNPHARMA", "exchange": "NSE", "industry": "Pharmaceuticals", "sector": "Pharma", "marketcapname": "Large Cap", "open": 1701.2, "high": 1750.0, "low": 1695.8, "close": 1742.30, "ltp": 1742.30, "vwap": 1729.7, "change_pct": 2.32, "volume": 3020000, "rsi": 68.5, "score": 89, "fno_lot_size": 350},
+    {"symbol": "INFY", "exchange": "NSE", "industry": "IT Services", "sector": "IT", "marketcapname": "Large Cap", "open": 1950.2, "high": 1958.4, "low": 1928.6, "close": 1936.55, "ltp": 1936.55, "vwap": 1941.5, "change_pct": -0.74, "volume": 3510000, "rsi": 44.9, "score": 46, "fno_lot_size": 400},
+    {"symbol": "AXISBANK", "exchange": "NSE", "industry": "Private Sector Bank", "sector": "Banks", "marketcapname": "Large Cap", "open": 1202.8, "high": 1221.4, "low": 1198.9, "close": 1215.80, "ltp": 1215.80, "vwap": 1212.1, "change_pct": 0.86, "volume": 4790000, "rsi": 59.8, "score": 76, "fno_lot_size": 625},
 ]
 
 
@@ -106,56 +132,6 @@ def env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.lower() in {"1", "true", "yes", "on"}
-
-
-def field_value(quote: dict, field: str) -> float | str | None:
-    aliases = {
-        "changePct": "change_pct",
-        "change_percent": "change_pct",
-        "lastPrice": "ltp",
-        "price": "ltp",
-    }
-    return quote.get(aliases.get(field, field))
-
-
-def matches_condition(quote: dict, condition: Condition) -> bool:
-    actual = field_value(quote, condition.field)
-    if actual is None:
-        return False
-    if condition.operator in {"crosses_above", "crosses_below"}:
-        condition_operator = ">" if condition.operator == "crosses_above" else "<"
-    else:
-        condition_operator = condition.operator
-    try:
-        left = float(actual)
-        right = float(condition.value)
-        return {
-            ">": left > right,
-            "<": left < right,
-            ">=": left >= right,
-            "<=": left <= right,
-            "=": abs(left - right) < 1e-9,
-        }[condition_operator]
-    except (TypeError, ValueError):
-        return str(actual).lower() == str(condition.value).lower()
-
-
-def scan_rows(request: ScanRequest) -> list[dict]:
-    rows = []
-    for quote in SAMPLE_QUOTES:
-        if all(matches_condition(quote, condition) for condition in request.conditions):
-            row = {
-                "symbol": quote["symbol"],
-                "exchange": quote["exchange"],
-                "sector": quote["sector"],
-                "ltp": quote["ltp"],
-                "changePct": quote["change_pct"],
-                "volume": quote["volume"],
-                "signal": "Momentum" if quote["score"] >= 75 else "Watch",
-                "score": quote["score"],
-            }
-            rows.append(row)
-    return rows[: request.limit]
 
 
 def rrg_points() -> list[dict]:
@@ -227,15 +203,24 @@ def universes() -> dict:
     }
 
 
+@app.get("/api/v1/screener/catalog")
+def screener_catalog() -> dict:
+    return catalog_response()
+
+
 @app.post("/api/v1/screener/scan")
 def run_scan(request: ScanRequest) -> dict:
+    field_warnings = request_field_warnings(request)
     return {
         "mode": "demo",
         "universe": request.universe,
         "timeframe": request.timeframe,
-        "conditionsApplied": len(request.conditions),
-        "results": scan_rows(request),
-        "warning": "Demo data only. SmartAPI market data is not connected yet.",
+        "logic": request.logic,
+        "conditionsApplied": len(request.conditions) + sum(len(group.conditions) for group in request.groups),
+        "groupsApplied": len(request.groups),
+        "results": scan_rows(request, SAMPLE_QUOTES),
+        "fieldWarnings": field_warnings,
+        "warning": "The rule engine is active on deterministic demo/replay data. SmartAPI universe streaming is the next data-adapter step.",
     }
 
 

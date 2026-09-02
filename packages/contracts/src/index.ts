@@ -9,19 +9,80 @@ export type UniverseKey =
 
 export type Quadrant = "leading" | "weakening" | "lagging" | "improving";
 
+export type ScreenerLogic = "all" | "any";
+
+export type ScreenerOperator =
+  | ">"
+  | "<"
+  | ">="
+  | "<="
+  | "="
+  | "!="
+  | "contains"
+  | "not_contains"
+  | "starts_with"
+  | "ends_with"
+  | "crosses_above"
+  | "crosses_below";
+
+export type ScreenerFieldAvailability =
+  | "ready"
+  | "metadata_required"
+  | "tick_feed_required"
+  | "depth_feed_required"
+  | "depth_history_required";
+
+export interface ScreenerFieldParameter {
+  name: string;
+  label: string;
+  type: "number" | "text" | "select" | "field";
+  default: number | string;
+  min?: number;
+  max?: number;
+  options?: string[];
+}
+
+export interface ScreenerFieldDefinition {
+  id: string;
+  label: string;
+  category: string;
+  kind: "field" | "function" | "indicator" | "measure" | "group";
+  valueType: "number" | "string" | "group";
+  description: string;
+  availability: ScreenerFieldAvailability;
+  parameters: ScreenerFieldParameter[];
+}
+
+export interface ScreenerCategory {
+  id: string;
+  label: string;
+  items: ScreenerFieldDefinition[];
+}
+
 export interface ScreenerCondition {
   id: string;
   field: string;
-  operator: ">" | "<" | ">=" | "<=" | "=" | "crosses_above" | "crosses_below";
+  operator: ScreenerOperator;
   value: number | string;
   lookback?: number;
   timeframe?: Timeframe;
+  parameters?: Record<string, number | string | boolean>;
+  compare_field?: string;
+  compare_parameters?: Record<string, number | string | boolean>;
+}
+
+export interface ScreenerFilterGroup {
+  id: string;
+  logic: ScreenerLogic;
+  conditions: ScreenerCondition[];
 }
 
 export interface ScreenerRequest {
   universe: UniverseKey;
   timeframe: Timeframe;
+  logic?: ScreenerLogic;
   conditions: ScreenerCondition[];
+  groups?: ScreenerFilterGroup[];
   limit?: number;
 }
 
@@ -34,6 +95,7 @@ export interface ScreenerResult {
   volume: number;
   signal: string;
   score: number;
+  metrics?: Record<string, number | string | null>;
 }
 
 export interface RrgTrailPoint {

@@ -32,3 +32,5 @@ jobs:
         run: pnpm install --no-frozen-lockfile
       - name: Build web terminal
         run: pnpm build:web
+      - name: Type-check Expo Android and iOS client
+        run: pnpm --filter @allinone/mobile typecheck

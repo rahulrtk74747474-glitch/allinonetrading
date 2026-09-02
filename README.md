@@ -38,6 +38,25 @@ The repository currently contains demo data only. Demo signals are not trading a
 
 The browser and mobile clients will call the same backend. Broker credentials and the TOTP secret will never be sent to either client.
 
+## Screener rule engine
+
+The web terminal and Expo Android/iOS client now use the same catalog-driven
+screener API:
+
+- `GET /api/v1/screener/catalog` returns 93 selectable fields and functions.
+- `POST /api/v1/screener/scan` evaluates ALL/ANY rules and nested sub-filters.
+- Rules support constants, field-to-field comparisons, per-side indicator
+  parameters, bar offsets, timeframes and cross-above/cross-below operators.
+- The catalog includes OHLCV, Heikin-Ashi, VWAP, FnO lot size, trade-book and
+  order-book measures, group and math functions, pivots, moving averages,
+  RSI, Parabolic SAR and Bollinger bands.
+
+OHLCV calculations work with candle data. Live trade-book rules require
+classified ticks; live order-book rules require depth snapshots; cancellation
+rules require locally accumulated depth history. The UI labels these
+requirements, and the API returns `fieldWarnings` instead of presenting demo
+values as live broker observations.
+
 ## Run the current demo
 
 Install Node.js, pnpm and Python 3.11+.
