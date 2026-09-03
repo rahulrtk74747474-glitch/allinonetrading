@@ -55,6 +55,7 @@ type ConditionState = {
 type FilterGroup = { id: string; logic: Logic; conditions: ConditionState[] };
 type PickerTarget = { conditionId: string; groupId?: string; mode: "primary" | "compare" | "parameter" | "compare_parameter"; parameterName?: string };
 type DisplayQuote = { symbol: string; price: string; change: string; signal: string; color: string };
+type EodhdStatus = { configured: boolean; defaultExchange: string; message: string };
 
 const colors = {
   bg: "#08111f",
@@ -71,6 +72,7 @@ const colors = {
 };
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://127.0.0.1:8000";
+const fundamentalSyncSymbols = ["RELIANCE", "ICICIBANK", "BHARTIARTL", "TCS", "HDFCBANK", "SUNPHARMA", "INFY", "AXISBANK"];
 
 const operatorLabels: Record<Operator, string> = {
   "=": "Equals",
@@ -278,8 +280,10 @@ function ScanScreen() {
   const [results, setResults] = useState<DisplayQuote[]>(quotes);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fundamentalsLoading, setFundamentalsLoading] = useState(false);
   const [feedMode, setFeedMode] = useState("DEMO");
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
+  const [eodhdStatus, setEodhdStatus] = useState<EodhdStatus>({ configured: false, defaultExchange: "NSE", message: "Checking backend configuration…" });
 
   const fields = catalog.flatMap((category) => category.items);
 
@@ -291,6 +295,14 @@ function ScanScreen() {
         if (Array.isArray(data.categories) && data.categories.length > 0) setCatalog(data.categories);
       })
       .catch(() => setCatalog(fallbackCatalog));
+    fetch(`${API_URL}/api/v1/fundamentals/providers/eodhd/status`, { signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Provider status unavailable"))))
+      .then((data) => setEodhdStatus({
+        configured: Boolean(data.configured),
+        defaultExchange: data.defaultExchange || "NSE",
+        message: data.message || "EODHD provider status loaded.",
+      }))
+      .catch(() => setEodhdStatus({ configured: false, defaultExchange: "NSE", message: "Backend unavailable; EODHD status could not be checked." }));
     return () => controller.abort();
   }, []);
 
@@ -407,11 +419,40 @@ function ScanScreen() {
     }
   }
 
+  async function syncFundamentals() {
+    if (!eodhdStatus.configured) {
+      setWarnings(["Add EODHD_API_TOKEN to the backend .env file and restart FastAPI. Never place this key in EXPO_PUBLIC_ variables."]);
+      return;
+    }
+    setFundamentalsLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/v1/fundamentals/providers/eodhd/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols: fundamentalSyncSymbols, exchange: eodhdStatus.defaultExchange }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "EODHD sync failed.");
+      const failures = (Array.isArray(data.results) ? data.results : [])
+        .filter((item: { status: string }) => item.status === "failed")
+        .map((item: { symbol: string; message: string }) => `${item.symbol}: ${item.message}`);
+      setWarnings([`EODHD mapped ${data.symbolsMapped}/${data.symbolsRequested} symbols and stored ${data.valuesImported} values. Run the scan to apply them.`, data.warning, ...failures]);
+    } catch (error) {
+      setWarnings([error instanceof Error ? error.message : "EODHD sync failed without exposing the API token."]);
+    } finally {
+      setFundamentalsLoading(false);
+    }
+  }
+
   return (
     <>
       <Text style={styles.eyebrow}>RULE BUILDER</Text>
       <Text style={styles.heading}>Market screener</Text>
       <Text style={styles.body}>The same Chartink-style rule contract used by the web terminal.</Text>
+      <View style={[styles.providerCard, eodhdStatus.configured && styles.providerCardReady]}>
+        <View style={styles.providerCopy}><Text style={styles.providerTitle}>EODHD fundamentals</Text><Text style={styles.providerMessage}>{eodhdStatus.message}</Text></View>
+        <Pressable style={styles.providerButton} onPress={syncFundamentals} disabled={fundamentalsLoading}><Text style={styles.providerButtonText}>{fundamentalsLoading ? "Syncing…" : "Sync"}</Text></Pressable>
+      </View>
       <View style={styles.formCard}>
         <Text style={styles.fieldLabel}>UNIVERSE</Text>
         <ChoiceRow choices={[["nifty50", "NIFTY 50"], ["banknifty", "BANKNIFTY"], ["midcap150", "MIDCAP"], ["crypto", "CRYPTO"]]} value={universe} onChange={setUniverse} />
@@ -788,6 +829,13 @@ const styles = StyleSheet.create({
   warning: { flexDirection: "row", gap: 9, backgroundColor: "#2b241b", borderColor: "#5a472a", borderWidth: 1, borderRadius: 7, padding: 11, marginTop: 8 },
   warningIcon: { color: colors.orange, fontWeight: "800", fontSize: 14 },
   warningText: { flex: 1, color: "#c5a875", fontSize: 9, lineHeight: 15 },
+  providerCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#2b241b", borderColor: "#5a472a", borderWidth: 1, borderRadius: 9, padding: 12, marginBottom: 12 },
+  providerCardReady: { backgroundColor: "#12352f", borderColor: "#28634f" },
+  providerCopy: { flex: 1 },
+  providerTitle: { color: colors.text, fontSize: 11, fontWeight: "700" },
+  providerMessage: { color: colors.muted, fontSize: 8, lineHeight: 12, marginTop: 3 },
+  providerButton: { alignItems: "center", justifyContent: "center", borderColor: "#396280", borderWidth: 1, borderRadius: 7, backgroundColor: "#102a43", paddingHorizontal: 13, paddingVertical: 9 },
+  providerButtonText: { color: colors.blue, fontSize: 9, fontWeight: "700" },
   rrgCard: { height: 350, borderWidth: 1, borderColor: colors.line, borderRadius: 11, backgroundColor: colors.panel, position: "relative", overflow: "hidden", marginBottom: 23 },
   quad: { position: "absolute", width: "50%", height: "50%", padding: 13 },
   topLeft: { left: 0, top: 0, backgroundColor: "#102840" },

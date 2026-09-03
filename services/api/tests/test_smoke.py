@@ -73,6 +73,15 @@ def test_screener_catalog_contains_chartink_field_groups() -> None:
     assert len(item_ids) >= 450
     assert payload["operatorLabels"][">"] == "Greater than"
     assert payload["operatorLabels"]["crosses_above"] == "Crossed above"
+    fields = {
+        item["id"]: item
+        for category in payload["categories"]
+        for item in category["items"]
+    }
+    assert fields["fund_market_cap"]["unit"] == "inr_crore"
+    assert fields["fund_ttm_eps"]["unit"] == "inr_per_share"
+    assert fields["fund_return_on_assets"]["unit"] == "percentage_or_ratio"
+    assert fields["fund_interest_cover"]["unit"] == "ratio"
 
 
 def test_screener_math_function_and_field_comparison() -> None:

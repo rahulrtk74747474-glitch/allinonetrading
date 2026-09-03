@@ -441,18 +441,32 @@ def slugify_label(label: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", normalized).strip("_")
 
 
-def infer_unit(label: str) -> str:
+def infer_unit(label: str, category: str) -> str:
     lowered = label.casefold()
-    if "percentage" in lowered or "margin" in lowered or lowered.endswith(" ratio"):
+    if (
+        "percentage" in lowered
+        or "margin" in lowered
+        or lowered.endswith((" ratio", " ratios"))
+        or lowered.startswith("return on ")
+    ):
         return "percentage_or_ratio"
     if "shareholders" in lowered or lowered.startswith("number of"):
         return "count"
     if "number" in lowered or "shares" in lowered:
         return "count_or_shares"
-    if "eps" in lowered or "per share" in lowered or lowered == "face value":
+    if (
+        "eps" in lowered
+        or "cps" in lowered
+        or "per share" in lowered
+        or lowered == "face value"
+    ):
         return "inr_per_share"
     if "value in lakhs" in lowered:
         return "inr_lakh"
+    if category == "financial_ratios":
+        return "ratio"
+    if category in {"financial_results", "cash_flow"}:
+        return "inr_crore"
     return "provider_native"
 
 
@@ -475,7 +489,7 @@ def fundamental_field_records() -> list[dict[str, Any]]:
                     "description": str(metadata["description"]),
                     "availability": str(metadata["availability"]),
                     "parameters": [],
-                    "unit": infer_unit(label),
+                    "unit": infer_unit(label, category),
                     "historyMode": "latest_snapshot",
                     "dataSource": "fundamentals_import",
                 }

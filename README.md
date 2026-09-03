@@ -60,10 +60,13 @@ requirements, and the API returns `fieldWarnings` instead of presenting demo
 values as live broker observations.
 
 Financial statements and shareholding values are not supplied by the SmartAPI
-price/order adapter. Load a verified dataset through the private
-`POST /api/v1/fundamentals/import` endpoint; the latest values are kept in the
-ignored local SQLite database under `data/local/`. Missing values resolve to
-`null` and do not match a rule. See
+price/order adapter. The backend now connects to EODHD Fundamentals API v1.1
+through `POST /api/v1/fundamentals/providers/eodhd/sync`, and verified exports
+can still be loaded through `POST /api/v1/fundamentals/import`. Latest values
+are kept in the ignored local SQLite database under `data/local/`. Missing
+values resolve to `null` and do not match a rule. EODHD does not replace
+India-specific promoter/FII/DII shareholding or bank disclosures when no exact
+equivalent exists. See
 [`docs/FUNDAMENTALS_IMPORT.md`](docs/FUNDAMENTALS_IMPORT.md) for the contract and
 examples.
 
@@ -124,7 +127,7 @@ Load normalized market data -> run a saved scan -> inspect a chart -> view RRG -
 ## Roadmap
 
 1. Connect Angel One SmartAPI for read-only instruments, candles and quotes.
-2. Replace demo data with a normalized India market-data service.
+2. Replace demo price data with the normalized SmartAPI India market-data service.
 3. Add the existing RRG calculations and 20-bar trails.
 4. Add event-driven backtesting with no-lookahead checks.
 5. Add options, optimizer and risk reports.

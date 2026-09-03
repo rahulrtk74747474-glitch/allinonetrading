@@ -124,6 +124,12 @@ type ResearchReport = {
   warnings: string[];
 };
 
+type EodhdStatus = {
+  configured: boolean;
+  defaultExchange: string;
+  message: string;
+};
+
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const operatorLabels: Record<Operator, string> = {
@@ -253,6 +259,8 @@ function App() {
   const [scanResults, setScanResults] = useState<Quote[]>(demoQuotes);
   const [scanWarnings, setScanWarnings] = useState<string[]>([]);
   const [apiMode, setApiMode] = useState("Demo data");
+  const [eodhdStatus, setEodhdStatus] = useState<EodhdStatus>({ configured: false, defaultExchange: "NSE", message: "Checking EODHD configuration…" });
+  const [eodhdSyncing, setEodhdSyncing] = useState(false);
   const [notice, setNotice] = useState("Paper mode is active. Connect a rotated SmartAPI key in the backend to load your own market data.");
 
   useEffect(() => {
@@ -260,8 +268,19 @@ function App() {
       .then((response) => response.json())
       .then((data) => {
         if (data.appMode === "connected") setApiMode("SmartAPI connected");
+        const provider = data.fundamentalProviders?.eodhd;
+        if (provider && typeof provider.configured === "boolean") {
+          setEodhdStatus({
+            configured: provider.configured,
+            defaultExchange: provider.defaultExchange || "NSE",
+            message: provider.message || "EODHD provider status loaded.",
+          });
+        }
       })
-      .catch(() => setApiMode("Demo data"));
+      .catch(() => {
+        setApiMode("Demo data");
+        setEodhdStatus({ configured: false, defaultExchange: "NSE", message: "Backend unavailable; EODHD status could not be checked." });
+      });
 
     fetch(API_URL + "/api/v1/screener/catalog")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("Catalog unavailable"))))
@@ -344,6 +363,36 @@ function App() {
       setScanWarnings([]);
       setNotice("The API is not running, so the interface is showing safe demo results.");
       setView("screener");
+    }
+  }
+
+  async function syncEodhdFundamentals() {
+    setView("screener");
+    if (!eodhdStatus.configured) {
+      setNotice("Add EODHD_API_TOKEN to the backend .env file, restart FastAPI, then sync again. Never put this token in VITE_ or EXPO_PUBLIC_ variables.");
+      return;
+    }
+    setEodhdSyncing(true);
+    setNotice("Loading documented EODHD fundamentals into the private screener store…");
+    const symbols = Array.from(new Set((scanResults.length ? scanResults : demoQuotes).map((quote) => quote.symbol)));
+    try {
+      const response = await fetch(API_URL + "/api/v1/fundamentals/providers/eodhd/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbols, exchange: eodhdStatus.defaultExchange || "NSE" }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "EODHD sync failed.");
+      setNotice(`EODHD sync completed: ${data.symbolsMapped}/${data.symbolsRequested} symbols mapped and ${data.valuesImported} values stored. Run the scan to apply them.`);
+      if (data.symbolsFailed > 0) {
+        setScanWarnings([data.warning, ...data.results.filter((item: { status: string }) => item.status === "failed").map((item: { symbol: string; message: string }) => `${item.symbol}: ${item.message}`)]);
+      } else {
+        setScanWarnings([data.warning]);
+      }
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "EODHD sync failed without exposing the API token.");
+    } finally {
+      setEodhdSyncing(false);
     }
   }
 
@@ -463,6 +512,9 @@ function App() {
               onUpdateGroup={updateGroup}
               onRemoveGroup={(id) => setGroups((current) => current.filter((group) => group.id !== id))}
               onRunScan={runScan}
+              eodhdStatus={eodhdStatus}
+              eodhdSyncing={eodhdSyncing}
+              onSyncEodhd={syncEodhdFundamentals}
             />
           )}
           {view === "rrg" && <RrgView timeframe={timeframe} onTimeframe={setTimeframe} />}
@@ -673,7 +725,7 @@ function ResearchView() {
   );
 }
 
-function Screener({ universe, timeframe, logic, conditions, groups, catalog, results, warnings, onUniverse, onTimeframe, onLogic, onUpdateCondition, onAddCondition, onRemoveCondition, onRemoveConditionsRight, onAddGroup, onUpdateGroup, onRemoveGroup, onRunScan }: {
+function Screener({ universe, timeframe, logic, conditions, groups, catalog, results, warnings, onUniverse, onTimeframe, onLogic, onUpdateCondition, onAddCondition, onRemoveCondition, onRemoveConditionsRight, onAddGroup, onUpdateGroup, onRemoveGroup, onRunScan, eodhdStatus, eodhdSyncing, onSyncEodhd }: {
   universe: string;
   timeframe: string;
   logic: Logic;
@@ -693,6 +745,9 @@ function Screener({ universe, timeframe, logic, conditions, groups, catalog, res
   onUpdateGroup: (id: string, patch: Partial<FilterGroup>) => void;
   onRemoveGroup: (id: string) => void;
   onRunScan: () => void;
+  eodhdStatus: EodhdStatus;
+  eodhdSyncing: boolean;
+  onSyncEodhd: () => void;
 }) {
   const [pickerTarget, setPickerTarget] = useState<{ conditionId: string; groupId?: string } | null>(null);
   const [catalogQuery, setCatalogQuery] = useState("");
@@ -730,6 +785,12 @@ function Screener({ universe, timeframe, logic, conditions, groups, catalog, res
       <div className="page-heading compact-heading">
         <div><div className="eyebrow">RULE BUILDER</div><h1>Market screener<span className="accent">.</span></h1><p>Compose technical and fundamental conditions like your Chartink workflow.</p></div>
         <div className="heading-actions"><button className="secondary-button"><Bell size={15} /> Save alert</button><button className="primary-button" onClick={onRunScan}><RefreshCw size={15} /> Run scan</button></div>
+      </div>
+      <div className={eodhdStatus.configured ? "provider-strip provider-ready" : "provider-strip"}>
+        <Database size={17} />
+        <div><strong>EODHD fundamentals</strong><span>{eodhdStatus.message}</span></div>
+        <span className="status-badge purple-badge">{eodhdStatus.configured ? "Backend key ready" : "Key required"}</span>
+        <button className="secondary-button" onClick={onSyncEodhd} disabled={eodhdSyncing}><RefreshCw size={14} /> {eodhdSyncing ? "Syncing…" : "Sync fundamentals"}</button>
       </div>
       <div className="screener-layout">
         <div className="panel condition-panel">

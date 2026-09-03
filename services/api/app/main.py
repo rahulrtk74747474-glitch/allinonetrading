@@ -14,6 +14,7 @@ load_dotenv()
 
 from .brokers.angel_one import AngelOneAdapter
 from .fundamental_store import FundamentalStore, attach_fundamentals
+from .providers.eodhd import EodhdFundamentalsProvider, EodhdProviderError
 from .research.models import ResearchRequest
 from .research.service import build_research_report
 from .screener import catalog_response, request_field_warnings, scan_rows
@@ -128,6 +129,11 @@ class FundamentalImportRequest(BaseModel):
     rows: list[FundamentalImportRow] = Field(min_length=1, max_length=2000)
 
 
+class EodhdSyncRequest(BaseModel):
+    symbols: list[str] = Field(min_length=1, max_length=25)
+    exchange: str | None = Field(default=None, min_length=1, max_length=20)
+
+
 SAMPLE_QUOTES = [
     {"symbol": "RELIANCE", "exchange": "NSE", "industry": "Refineries", "sector": "Energy", "marketcapname": "Large Cap", "open": 2894.0, "high": 2961.8, "low": 2882.3, "close": 2942.40, "ltp": 2942.40, "vwap": 2927.6, "change_pct": 1.84, "volume": 8420000, "rsi": 64.2, "score": 86, "fno_lot_size": 250},
     {"symbol": "ICICIBANK", "exchange": "NSE", "industry": "Private Sector Bank", "sector": "Banks", "marketcapname": "Large Cap", "open": 1309.4, "high": 1335.2, "low": 1305.1, "close": 1328.65, "ltp": 1328.65, "vwap": 1322.4, "change_pct": 1.25, "volume": 6110000, "rsi": 61.7, "score": 82, "fno_lot_size": 700},
@@ -141,6 +147,7 @@ SAMPLE_QUOTES = [
 
 
 fundamental_store = FundamentalStore()
+eodhd_provider = EodhdFundamentalsProvider()
 
 
 def env_bool(name: str, default: bool) -> bool:
@@ -205,6 +212,7 @@ def status() -> dict:
         "liveTrading": env_bool("LIVE_TRADING", False),
         "broker": "Angel One SmartAPI (not connected)",
         "fundamentals": fundamental_status,
+        "fundamentalProviders": {"eodhd": eodhd_provider.configuration_status()},
     }
 
 
@@ -228,7 +236,27 @@ def screener_catalog() -> dict:
 
 @app.get("/api/v1/fundamentals/status")
 def fundamentals_status() -> dict:
-    return fundamental_store.status()
+    return {
+        **fundamental_store.status(),
+        "providers": {"eodhd": eodhd_provider.configuration_status()},
+    }
+
+
+@app.get("/api/v1/fundamentals/providers/eodhd/status")
+def eodhd_status() -> dict:
+    return eodhd_provider.configuration_status()
+
+
+@app.post("/api/v1/fundamentals/providers/eodhd/sync")
+def sync_eodhd_fundamentals(request: EodhdSyncRequest) -> dict[str, Any]:
+    try:
+        return eodhd_provider.sync(
+            request.symbols,
+            exchange=request.exchange,
+            store=fundamental_store,
+        )
+    except EodhdProviderError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @app.get("/api/v1/fundamentals/{symbol}")

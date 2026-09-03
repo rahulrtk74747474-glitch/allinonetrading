@@ -123,6 +123,47 @@ export interface FundamentalDataStatus {
   sources: string[];
 }
 
+export interface EodhdProviderStatus {
+  provider: "EODHD";
+  configured: boolean;
+  apiVersion: "v1.1";
+  defaultExchange: string;
+  maxSymbolsPerSync: number;
+  credentialLocation: "backend environment only";
+  coverage: string[];
+  limitations: string[];
+  message: string;
+}
+
+export interface EodhdSyncRequest {
+  symbols: string[];
+  exchange?: string;
+}
+
+export interface EodhdSyncSymbolResult {
+  symbol: string;
+  ticker?: string;
+  status: "mapped" | "failed";
+  asOf?: string;
+  currency?: string | null;
+  fieldsMapped?: number;
+  currencyAmountsSkipped?: boolean;
+  message?: string;
+}
+
+export interface EodhdSyncResult {
+  provider: "EODHD";
+  exchange: string;
+  symbolsRequested: number;
+  symbolsMapped: number;
+  symbolsFailed: number;
+  valuesImported: number;
+  staleValuesIgnored: number;
+  results: EodhdSyncSymbolResult[];
+  storeStatus: FundamentalDataStatus;
+  warning: string;
+}
+
 export interface RrgTrailPoint {
   x: number;
   y: number;
@@ -167,6 +208,8 @@ export interface ApiStatus {
   paperTrading: boolean;
   liveTrading: boolean;
   broker: string;
+  fundamentals?: FundamentalDataStatus;
+  fundamentalProviders?: { eodhd: EodhdProviderStatus };
 }
 
 
