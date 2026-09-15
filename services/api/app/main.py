@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from .backtesting import router as backtest_router
 from .brokers.angel_one import AngelOneAdapter
 from .fundamental_store import FundamentalStore, attach_fundamentals
 from .providers.eodhd import EodhdFundamentalsProvider, EodhdProviderError
@@ -41,6 +42,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(backtest_router)
 
 
 Timeframe = Literal["5m", "15m", "1h", "4h", "1d", "1w", "1M", "1Y"]

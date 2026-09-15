@@ -36,6 +36,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import BacktestLab from "./BacktestLab";
 
 type View = "overview" | "screener" | "rrg" | "backtest" | "options" | "arbitrage" | "research" | "settings";
 type Logic = "all" | "any";
@@ -518,7 +519,7 @@ function App() {
             />
           )}
           {view === "rrg" && <RrgView timeframe={timeframe} onTimeframe={setTimeframe} />}
-          {view === "backtest" && <BacktestView />}
+          {view === "backtest" && <BacktestLab apiUrl={API_URL} />}
           {view === "options" && <OptionsView />}
           {view === "arbitrage" && <ArbitrageView />}
           {view === "research" && <ResearchView />}
@@ -651,7 +652,6 @@ function MiniChart() {
     </div>
   );
 }
-
 
 function ResearchView() {
   const [symbol, setSymbol] = useState("RELIANCE");
@@ -897,7 +897,7 @@ function RrgChart() {
 }
 
 function RrgMini() {
-  return <div className="rrg-mini"><div className="mini-axis-x" /><div className="mini-axis-y" />{demoRrg.slice(0, 5).map((point, index) => { const x = 50 + (point.rsRatio - 98) * 18; const y = 52 - (point.rsMomentum - 98) * 18; return <div className={"mini-point " + point.quadrant} style={{ left: x + "%", top: y + "%" }} key={point.symbol}><span>{point.symbol.slice(0, 2)}</span></div>; })}<span className="mini-label mini-leading">Leading</span><span className="mini-label mini-lagging">Lagging</span></div>;
+  return <div className="rrg-mini"><div className="mini-axis-x" /><div className="mini-axis-y" />{demoRrg.slice(0, 5).map((point) => { const x = 50 + (point.rsRatio - 98) * 18; const y = 52 - (point.rsMomentum - 98) * 18; return <div className={"mini-point " + point.quadrant} style={{ left: x + "%", top: y + "%" }} key={point.symbol}><span>{point.symbol.slice(0, 2)}</span></div>; })}<span className="mini-label mini-leading">Leading</span><span className="mini-label mini-lagging">Lagging</span></div>;
 }
 
 function BacktestView() {
