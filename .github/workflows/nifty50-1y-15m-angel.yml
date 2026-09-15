@@ -12,10 +12,6 @@ jobs:
       ANGELONE_CLIENT_ID: ${{ secrets.ANGELONE_CLIENT_ID }}
       ANGELONE_PIN: ${{ secrets.ANGELONE_PIN }}
       ANGELONE_TOTP_SECRET: ${{ secrets.ANGELONE_TOTP_SECRET }}
-      LEG_API_KEY: ${{ secrets.ANGEL_API_KEY }}
-      LEG_CLIENT_ID: ${{ secrets.ANGEL_CLIENT_CODE }}
-      LEG_PIN: ${{ secrets.ANGEL_PIN }}
-      LEG_TOTP: ${{ secrets.ANGEL_TOTP_SECRET }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,22 +21,21 @@ jobs:
         run: |
           python -m pip install -e services/api
           python -m pip install -r services/api/requirements-broker.txt
-      - name: Map legacy SmartAPI secret names if needed
-        run: |
-          echo "ANGELONE_API_KEY=${ANGELONE_API_KEY:-$LEG_API_KEY}" >> "$GITHUB_ENV"
-          echo "ANGELONE_CLIENT_ID=${ANGELONE_CLIENT_ID:-$LEG_CLIENT_ID}" >> "$GITHUB_ENV"
-          echo "ANGELONE_PIN=${ANGELONE_PIN:-$LEG_PIN}" >> "$GITHUB_ENV"
-          echo "ANGELONE_TOTP_SECRET=${ANGELONE_TOTP_SECRET:-$LEG_TOTP}" >> "$GITHUB_ENV"
       - name: Verify SmartAPI credentials
+        shell: bash
         run: |
-          python - <<'PY'
-          import os
-          names=['ANGELONE_API_KEY','ANGELONE_CLIENT_ID','ANGELONE_PIN','ANGELONE_TOTP_SECRET']
-          print('SmartAPI credential fields present:', {n: bool(os.getenv(n,'').strip()) for n in names})
-          missing=[n for n in names if not os.getenv(n,'').strip()]
-          if missing:
-              raise SystemExit('Missing GitHub Actions secrets for: ' + ', '.join(missing))
-          PY
+          missing=0
+          for name in ANGELONE_API_KEY ANGELONE_CLIENT_ID ANGELONE_PIN ANGELONE_TOTP_SECRET; do
+            if [ -z "${!name}" ]; then
+              echo "$name: missing"
+              missing=1
+            else
+              echo "$name: present"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
       - name: Run one-year 15-minute NIFTY 50 backtest
         env:
           PYTHONPATH: services/api
