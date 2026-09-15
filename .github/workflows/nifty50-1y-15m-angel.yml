@@ -1,0 +1,86 @@
+name: nifty50-1y-15m-angel-research
+
+on:
+  pull_request:
+
+jobs:
+  run-backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANGELONE_API_KEY: ${{ secrets.ANGELONE_API_KEY }}
+      ANGELONE_CLIENT_ID: ${{ secrets.ANGELONE_CLIENT_ID }}
+      ANGELONE_PIN: ${{ secrets.ANGELONE_PIN }}
+      ANGELONE_TOTP_SECRET: ${{ secrets.ANGELONE_TOTP_SECRET }}
+      LEG_API_KEY: ${{ secrets.ANGEL_API_KEY }}
+      LEG_CLIENT_ID: ${{ secrets.ANGEL_CLIENT_CODE }}
+      LEG_PIN: ${{ secrets.ANGEL_PIN }}
+      LEG_TOTP: ${{ secrets.ANGEL_TOTP_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install API and broker dependencies
+        run: |
+          python -m pip install -e services/api
+          python -m pip install -r services/api/requirements-broker.txt
+      - name: Map legacy SmartAPI secret names if needed
+        run: |
+          echo "ANGELONE_API_KEY=${ANGELONE_API_KEY:-$LEG_API_KEY}" >> "$GITHUB_ENV"
+          echo "ANGELONE_CLIENT_ID=${ANGELONE_CLIENT_ID:-$LEG_CLIENT_ID}" >> "$GITHUB_ENV"
+          echo "ANGELONE_PIN=${ANGELONE_PIN:-$LEG_PIN}" >> "$GITHUB_ENV"
+          echo "ANGELONE_TOTP_SECRET=${ANGELONE_TOTP_SECRET:-$LEG_TOTP}" >> "$GITHUB_ENV"
+      - name: Verify SmartAPI credentials
+        run: |
+          python - <<'PY'
+          import os
+          names=['ANGELONE_API_KEY','ANGELONE_CLIENT_ID','ANGELONE_PIN','ANGELONE_TOTP_SECRET']
+          print('SmartAPI credential fields present:', {n: bool(os.getenv(n,'').strip()) for n in names})
+          missing=[n for n in names if not os.getenv(n,'').strip()]
+          if missing:
+              raise SystemExit('Missing GitHub Actions secrets for: ' + ', '.join(missing))
+          PY
+      - name: Run one-year 15-minute NIFTY 50 backtest
+        env:
+          PYTHONPATH: services/api
+        run: |
+          python - <<'PY'
+          import json
+          from datetime import date
+          from app.backtesting.service import run_nifty50_batch
+          result=run_nifty50_batch(
+              timeframe='15m',
+              start_date=date(2025,9,15),
+              end_date=date(2026,9,15),
+              total_capital=100000.0,
+              rsi_length=3,
+              rsi_entry_threshold=10.0,
+              vertex_length=14,
+              vertex_entry_threshold=-10.0,
+              vertex_exit_threshold=-10.0,
+              match_export=True,
+              fill_mode='next_open',
+              fee_bps_per_side=12.0,
+              slippage_bps_per_side=3.0,
+              source='angel_one',
+          )
+          with open('nifty50_1y_15m_result.json','w',encoding='utf-8') as f:
+              json.dump(result,f,indent=2)
+          summary={
+              'verdict':result.get('verdict'),
+              'verdictReasons':result.get('verdictReasons'),
+              'coverage':result.get('coverage'),
+              'metrics':result.get('metrics'),
+              'diagnostics':result.get('diagnostics'),
+              'errors':result.get('errors'),
+          }
+          print('BACKTEST_RESULT_START')
+          print(json.dumps(summary,indent=2))
+          print('BACKTEST_RESULT_END')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nifty50-1y-15m-result
+          path: nifty50_1y_15m_result.json
